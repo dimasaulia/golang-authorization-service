@@ -1,0 +1,16 @@
+package services
+
+import (
+	"context"
+
+	"github.com/open-suite/authorization/internal/entities"
+	"github.com/open-suite/authorization/internal/modules/modules/dto"
+)
+
+type ModuleService interface {
+	Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Module, error)
+	FindByID(ctx context.Context, id int64) (*entities.Module, error)
+	Create(ctx context.Context, request dto.CreateModuleRequest) (*entities.Module, error)
+	Update(ctx context.Context, id int64, request dto.UpdateModuleRequest) (*entities.Module, error)
+	Delete(ctx context.Context, id int64) error
+}

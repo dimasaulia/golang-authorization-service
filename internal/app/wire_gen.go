@@ -8,14 +8,90 @@ package app
 
 import (
 	"context"
+	"github.com/open-suite/authorization/internal/modules/accesscacheversions"
+	controllers18 "github.com/open-suite/authorization/internal/modules/accesscacheversions/controllers"
+	repositories18 "github.com/open-suite/authorization/internal/modules/accesscacheversions/repositories"
+	services18 "github.com/open-suite/authorization/internal/modules/accesscacheversions/services"
+	"github.com/open-suite/authorization/internal/modules/actions"
+	controllers8 "github.com/open-suite/authorization/internal/modules/actions/controllers"
+	repositories8 "github.com/open-suite/authorization/internal/modules/actions/repositories"
+	services8 "github.com/open-suite/authorization/internal/modules/actions/services"
+	"github.com/open-suite/authorization/internal/modules/appclients"
+	controllers6 "github.com/open-suite/authorization/internal/modules/appclients/controllers"
+	repositories6 "github.com/open-suite/authorization/internal/modules/appclients/repositories"
+	services6 "github.com/open-suite/authorization/internal/modules/appclients/services"
+	"github.com/open-suite/authorization/internal/modules/apppermissionmanifests"
+	controllers20 "github.com/open-suite/authorization/internal/modules/apppermissionmanifests/controllers"
+	repositories20 "github.com/open-suite/authorization/internal/modules/apppermissionmanifests/repositories"
+	services20 "github.com/open-suite/authorization/internal/modules/apppermissionmanifests/services"
+	"github.com/open-suite/authorization/internal/modules/apps"
+	controllers5 "github.com/open-suite/authorization/internal/modules/apps/controllers"
+	repositories5 "github.com/open-suite/authorization/internal/modules/apps/repositories"
+	services5 "github.com/open-suite/authorization/internal/modules/apps/services"
+	"github.com/open-suite/authorization/internal/modules/auditlogs"
+	controllers19 "github.com/open-suite/authorization/internal/modules/auditlogs/controllers"
+	repositories19 "github.com/open-suite/authorization/internal/modules/auditlogs/repositories"
+	services19 "github.com/open-suite/authorization/internal/modules/auditlogs/services"
 	"github.com/open-suite/authorization/internal/modules/health"
 	"github.com/open-suite/authorization/internal/modules/health/controllers"
 	"github.com/open-suite/authorization/internal/modules/health/repositories"
 	"github.com/open-suite/authorization/internal/modules/health/services"
+	"github.com/open-suite/authorization/internal/modules/menus"
+	controllers10 "github.com/open-suite/authorization/internal/modules/menus/controllers"
+	repositories10 "github.com/open-suite/authorization/internal/modules/menus/repositories"
+	services10 "github.com/open-suite/authorization/internal/modules/menus/services"
+	"github.com/open-suite/authorization/internal/modules/modules"
+	controllers7 "github.com/open-suite/authorization/internal/modules/modules/controllers"
+	repositories7 "github.com/open-suite/authorization/internal/modules/modules/repositories"
+	services7 "github.com/open-suite/authorization/internal/modules/modules/services"
+	"github.com/open-suite/authorization/internal/modules/organizations"
+	controllers2 "github.com/open-suite/authorization/internal/modules/organizations/controllers"
+	repositories2 "github.com/open-suite/authorization/internal/modules/organizations/repositories"
+	services2 "github.com/open-suite/authorization/internal/modules/organizations/services"
+	"github.com/open-suite/authorization/internal/modules/permissions"
+	controllers9 "github.com/open-suite/authorization/internal/modules/permissions/controllers"
+	repositories9 "github.com/open-suite/authorization/internal/modules/permissions/repositories"
+	services9 "github.com/open-suite/authorization/internal/modules/permissions/services"
 	"github.com/open-suite/authorization/internal/modules/releasenotes"
-	controllers2 "github.com/open-suite/authorization/internal/modules/releasenotes/controllers"
-	repositories2 "github.com/open-suite/authorization/internal/modules/releasenotes/repositories"
-	services2 "github.com/open-suite/authorization/internal/modules/releasenotes/services"
+	controllers21 "github.com/open-suite/authorization/internal/modules/releasenotes/controllers"
+	repositories21 "github.com/open-suite/authorization/internal/modules/releasenotes/repositories"
+	services21 "github.com/open-suite/authorization/internal/modules/releasenotes/services"
+	"github.com/open-suite/authorization/internal/modules/rolepermissions"
+	controllers12 "github.com/open-suite/authorization/internal/modules/rolepermissions/controllers"
+	repositories12 "github.com/open-suite/authorization/internal/modules/rolepermissions/repositories"
+	services12 "github.com/open-suite/authorization/internal/modules/rolepermissions/services"
+	"github.com/open-suite/authorization/internal/modules/roles"
+	controllers11 "github.com/open-suite/authorization/internal/modules/roles/controllers"
+	repositories11 "github.com/open-suite/authorization/internal/modules/roles/repositories"
+	services11 "github.com/open-suite/authorization/internal/modules/roles/services"
+	"github.com/open-suite/authorization/internal/modules/teammembers"
+	controllers15 "github.com/open-suite/authorization/internal/modules/teammembers/controllers"
+	repositories15 "github.com/open-suite/authorization/internal/modules/teammembers/repositories"
+	services15 "github.com/open-suite/authorization/internal/modules/teammembers/services"
+	"github.com/open-suite/authorization/internal/modules/teamroles"
+	controllers16 "github.com/open-suite/authorization/internal/modules/teamroles/controllers"
+	repositories16 "github.com/open-suite/authorization/internal/modules/teamroles/repositories"
+	services16 "github.com/open-suite/authorization/internal/modules/teamroles/services"
+	"github.com/open-suite/authorization/internal/modules/teams"
+	controllers14 "github.com/open-suite/authorization/internal/modules/teams/controllers"
+	repositories14 "github.com/open-suite/authorization/internal/modules/teams/repositories"
+	services14 "github.com/open-suite/authorization/internal/modules/teams/services"
+	"github.com/open-suite/authorization/internal/modules/useridentities"
+	controllers4 "github.com/open-suite/authorization/internal/modules/useridentities/controllers"
+	repositories4 "github.com/open-suite/authorization/internal/modules/useridentities/repositories"
+	services4 "github.com/open-suite/authorization/internal/modules/useridentities/services"
+	"github.com/open-suite/authorization/internal/modules/userpermissionoverrides"
+	controllers17 "github.com/open-suite/authorization/internal/modules/userpermissionoverrides/controllers"
+	repositories17 "github.com/open-suite/authorization/internal/modules/userpermissionoverrides/repositories"
+	services17 "github.com/open-suite/authorization/internal/modules/userpermissionoverrides/services"
+	"github.com/open-suite/authorization/internal/modules/userroles"
+	controllers13 "github.com/open-suite/authorization/internal/modules/userroles/controllers"
+	repositories13 "github.com/open-suite/authorization/internal/modules/userroles/repositories"
+	services13 "github.com/open-suite/authorization/internal/modules/userroles/services"
+	"github.com/open-suite/authorization/internal/modules/users"
+	controllers3 "github.com/open-suite/authorization/internal/modules/users/controllers"
+	repositories3 "github.com/open-suite/authorization/internal/modules/users/repositories"
+	services3 "github.com/open-suite/authorization/internal/modules/users/services"
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/i18n"
@@ -48,11 +124,87 @@ func Initialize(ctx context.Context) (*App, error) {
 	healthService := services.NewHealthService(healthRepository, logger)
 	healthController := controllers.NewHealthController(healthService, sender, logger)
 	healthModuleImpl := health.NewHealthModule(healthController)
-	releaseNoteRepository := repositories2.NewReleaseNoteRepository(databaseDatabase, logger)
-	releaseNoteService := services2.NewReleaseNoteService(releaseNoteRepository, logger)
-	releaseNoteController := controllers2.NewReleaseNoteController(releaseNoteService, sender, logger)
+	organizationRepository := repositories2.NewOrganizationRepository(databaseDatabase, logger)
+	organizationService := services2.NewOrganizationService(organizationRepository, logger)
+	organizationController := controllers2.NewOrganizationController(organizationService, sender, logger)
+	organizationModuleImpl := organizations.NewOrganizationModule(organizationController)
+	userRepository := repositories3.NewUserRepository(databaseDatabase, logger)
+	userService := services3.NewUserService(userRepository, logger)
+	userController := controllers3.NewUserController(userService, sender, logger)
+	userModuleImpl := users.NewUserModule(userController)
+	userIdentityRepository := repositories4.NewUserIdentityRepository(databaseDatabase, logger)
+	userIdentityService := services4.NewUserIdentityService(userIdentityRepository, logger)
+	userIdentityController := controllers4.NewUserIdentityController(userIdentityService, sender, logger)
+	userIdentityModuleImpl := useridentities.NewUserIdentityModule(userIdentityController)
+	appRepository := repositories5.NewAppRepository(databaseDatabase, logger)
+	appService := services5.NewAppService(appRepository, logger)
+	appController := controllers5.NewAppController(appService, sender, logger)
+	appModuleImpl := apps.NewAppModule(appController)
+	appClientRepository := repositories6.NewAppClientRepository(databaseDatabase, logger)
+	appClientService := services6.NewAppClientService(appClientRepository, logger)
+	appClientController := controllers6.NewAppClientController(appClientService, sender, logger)
+	appClientModuleImpl := appclients.NewAppClientModule(appClientController)
+	moduleRepository := repositories7.NewModuleRepository(databaseDatabase, logger)
+	moduleService := services7.NewModuleService(moduleRepository, logger)
+	moduleController := controllers7.NewModuleController(moduleService, sender, logger)
+	moduleModuleImpl := modules.NewModuleModule(moduleController)
+	actionRepository := repositories8.NewActionRepository(databaseDatabase, logger)
+	actionService := services8.NewActionService(actionRepository, logger)
+	actionController := controllers8.NewActionController(actionService, sender, logger)
+	actionModuleImpl := actions.NewActionModule(actionController)
+	permissionRepository := repositories9.NewPermissionRepository(databaseDatabase, logger)
+	permissionService := services9.NewPermissionService(permissionRepository, logger)
+	permissionController := controllers9.NewPermissionController(permissionService, sender, logger)
+	permissionModuleImpl := permissions.NewPermissionModule(permissionController)
+	menuRepository := repositories10.NewMenuRepository(databaseDatabase, logger)
+	menuService := services10.NewMenuService(menuRepository, logger)
+	menuController := controllers10.NewMenuController(menuService, sender, logger)
+	menuModuleImpl := menus.NewMenuModule(menuController)
+	roleRepository := repositories11.NewRoleRepository(databaseDatabase, logger)
+	roleService := services11.NewRoleService(roleRepository, logger)
+	roleController := controllers11.NewRoleController(roleService, sender, logger)
+	roleModuleImpl := roles.NewRoleModule(roleController)
+	rolePermissionRepository := repositories12.NewRolePermissionRepository(databaseDatabase, logger)
+	rolePermissionService := services12.NewRolePermissionService(rolePermissionRepository, logger)
+	rolePermissionController := controllers12.NewRolePermissionController(rolePermissionService, sender, logger)
+	rolePermissionModuleImpl := rolepermissions.NewRolePermissionModule(rolePermissionController)
+	userRoleRepository := repositories13.NewUserRoleRepository(databaseDatabase, logger)
+	userRoleService := services13.NewUserRoleService(userRoleRepository, logger)
+	userRoleController := controllers13.NewUserRoleController(userRoleService, sender, logger)
+	userRoleModuleImpl := userroles.NewUserRoleModule(userRoleController)
+	teamRepository := repositories14.NewTeamRepository(databaseDatabase, logger)
+	teamService := services14.NewTeamService(teamRepository, logger)
+	teamController := controllers14.NewTeamController(teamService, sender, logger)
+	teamModuleImpl := teams.NewTeamModule(teamController)
+	teamMemberRepository := repositories15.NewTeamMemberRepository(databaseDatabase, logger)
+	teamMemberService := services15.NewTeamMemberService(teamMemberRepository, logger)
+	teamMemberController := controllers15.NewTeamMemberController(teamMemberService, sender, logger)
+	teamMemberModuleImpl := teammembers.NewTeamMemberModule(teamMemberController)
+	teamRoleRepository := repositories16.NewTeamRoleRepository(databaseDatabase, logger)
+	teamRoleService := services16.NewTeamRoleService(teamRoleRepository, logger)
+	teamRoleController := controllers16.NewTeamRoleController(teamRoleService, sender, logger)
+	teamRoleModuleImpl := teamroles.NewTeamRoleModule(teamRoleController)
+	userPermissionOverrideRepository := repositories17.NewUserPermissionOverrideRepository(databaseDatabase, logger)
+	userPermissionOverrideService := services17.NewUserPermissionOverrideService(userPermissionOverrideRepository, logger)
+	userPermissionOverrideController := controllers17.NewUserPermissionOverrideController(userPermissionOverrideService, sender, logger)
+	userPermissionOverrideModuleImpl := userpermissionoverrides.NewUserPermissionOverrideModule(userPermissionOverrideController)
+	accessCacheVersionRepository := repositories18.NewAccessCacheVersionRepository(databaseDatabase, logger)
+	accessCacheVersionService := services18.NewAccessCacheVersionService(accessCacheVersionRepository, logger)
+	accessCacheVersionController := controllers18.NewAccessCacheVersionController(accessCacheVersionService, sender, logger)
+	accessCacheVersionModuleImpl := accesscacheversions.NewAccessCacheVersionModule(accessCacheVersionController)
+	auditLogRepository := repositories19.NewAuditLogRepository(databaseDatabase, logger)
+	auditLogService := services19.NewAuditLogService(auditLogRepository, logger)
+	auditLogController := controllers19.NewAuditLogController(auditLogService, sender, logger)
+	auditLogModuleImpl := auditlogs.NewAuditLogModule(auditLogController)
+	appPermissionManifestRepository := repositories20.NewAppPermissionManifestRepository(databaseDatabase, logger)
+	appPermissionManifestService := services20.NewAppPermissionManifestService(appPermissionManifestRepository, logger)
+	appPermissionManifestController := controllers20.NewAppPermissionManifestController(appPermissionManifestService, sender, logger)
+	appPermissionManifestModuleImpl := apppermissionmanifests.NewAppPermissionManifestModule(appPermissionManifestController)
+	releaseNoteRepository := repositories21.NewReleaseNoteRepository(databaseDatabase, logger)
+	releaseNoteService := services21.NewReleaseNoteService(releaseNoteRepository, logger)
+	releaseNoteController := controllers21.NewReleaseNoteController(releaseNoteService, sender, logger)
 	releaseNoteModuleImpl := releasenotes.NewReleaseNoteModule(releaseNoteController)
-	v := ProvideModules(healthModuleImpl, releaseNoteModuleImpl)
+	v := ProvideModules(healthModuleImpl, organizationModuleImpl, userModuleImpl, userIdentityModuleImpl, appModuleImpl, appClientModuleImpl, moduleModuleImpl, actionModuleImpl, permissionModuleImpl, menuModuleImpl, roleModuleImpl, rolePermissionModuleImpl, userRoleModuleImpl, teamModuleImpl, teamMemberModuleImpl, teamRoleModuleImpl, userPermissionOverrideModuleImpl, accessCacheVersionModuleImpl, auditLogModuleImpl, appPermissionManifestModuleImpl, releaseNoteModuleImpl)
 	app := New(configConfig, logger, sender, databaseDatabase, redisRedis, v)
 	return app, nil
 }
