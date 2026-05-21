@@ -33,7 +33,8 @@ func (c *AppControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 
 	limit := parseUintQuery(r, "limit", 20)
 	offset := parseUintQuery(r, "offset", 0)
-	items, err := c.AppService.Find(r.Context(), limit, offset)
+	search := r.URL.Query().Get("search")
+	items, err := c.AppService.Find(r.Context(), limit, offset, search)
 	if err != nil {
 		end(err)
 		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)

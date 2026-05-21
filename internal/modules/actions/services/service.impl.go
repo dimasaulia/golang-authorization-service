@@ -21,9 +21,9 @@ func NewActionService(repository repositories.ActionRepository, appLogger *logge
 	}
 }
 
-func (s *ActionServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Action, error) {
+func (s *ActionServiceImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.Action, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.ActionRepository.Find(ctx, limit, offset)
+	items, err := s.ActionRepository.Find(ctx, limit, offset, search)
 	end(err, "count", len(items))
 	return items, err
 }

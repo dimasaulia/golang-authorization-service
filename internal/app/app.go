@@ -61,6 +61,7 @@ func (a *App) Handler() http.Handler {
 
 	return middleware.Chain(
 		mux,
+		middleware.CORS(a.cfg.CORS),
 		middleware.RequestContext,
 		middleware.Recover(a.logger, a.sender),
 		middleware.RequestLogger(a.logger),

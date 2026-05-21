@@ -21,9 +21,9 @@ func NewTeamService(repository repositories.TeamRepository, appLogger *logger.Lo
 	}
 }
 
-func (s *TeamServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Team, error) {
+func (s *TeamServiceImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.Team, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.TeamRepository.Find(ctx, limit, offset)
+	items, err := s.TeamRepository.Find(ctx, limit, offset, search)
 	end(err, "count", len(items))
 	return items, err
 }

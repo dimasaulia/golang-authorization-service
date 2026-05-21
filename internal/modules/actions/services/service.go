@@ -8,7 +8,7 @@ import (
 )
 
 type ActionService interface {
-	Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Action, error)
+	Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.Action, error)
 	FindByID(ctx context.Context, id int64) (*entities.Action, error)
 	Create(ctx context.Context, request dto.CreateActionRequest) (*entities.Action, error)
 	Update(ctx context.Context, id int64, request dto.UpdateActionRequest) (*entities.Action, error)

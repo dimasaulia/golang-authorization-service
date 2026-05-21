@@ -21,9 +21,9 @@ func NewAppService(repository repositories.AppRepository, appLogger *logger.Logg
 	}
 }
 
-func (s *AppServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.App, error) {
+func (s *AppServiceImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.App, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.AppRepository.Find(ctx, limit, offset)
+	items, err := s.AppRepository.Find(ctx, limit, offset, search)
 	end(err, "count", len(items))
 	return items, err
 }

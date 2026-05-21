@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -31,13 +32,19 @@ func NewTeamRepository(db *database.Database, appLogger *logger.Logger) TeamRepo
 	}
 }
 
-func (r *TeamRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Team, error) {
-	query, args, err := r.sb.Select(columns()...).
+func (r *TeamRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.Team, error) {
+	builder := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
 		Limit(limit).
-		Offset(offset).
-		ToSql()
+		Offset(offset)
+
+	if search != "" {
+		pattern := "%" + strings.ToLower(search) + "%"
+		builder = builder.Where(sq.Expr("LOWER(name) LIKE ?", pattern))
+	}
+
+	query, args, err := builder.ToSql()
 	if err != nil {
 		return nil, err
 	}
