@@ -2,11 +2,14 @@ package services
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/apps/dto"
 	"github.com/open-suite/authorization/internal/modules/apps/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type AppServiceImpl struct {
@@ -21,9 +24,9 @@ func NewAppService(repository repositories.AppRepository, appLogger *logger.Logg
 	}
 }
 
-func (s *AppServiceImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.App, error) {
+func (s *AppServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.App, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.AppRepository.Find(ctx, limit, offset, search)
+	items, err := s.AppRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }
@@ -31,6 +34,29 @@ func (s *AppServiceImpl) Find(ctx context.Context, limit uint64, offset uint64, 
 func (s *AppServiceImpl) FindByID(ctx context.Context, id int64) (*entities.App, error) {
 	end := s.log.Start(ctx, "FindByID", "id", id)
 	item, err := s.AppRepository.FindByID(ctx, id)
+	end(err)
+	return item, err
+}
+
+func (s *AppServiceImpl) FindByUnique(ctx context.Context, unique string) (*entities.App, error) {
+	unique = strings.TrimSpace(unique)
+	end := s.log.Start(ctx, "FindByUnique", "unique", unique)
+
+	id, err := strconv.ParseInt(unique, 10, 64)
+	if err == nil {
+		item, err := s.AppRepository.FindByID(ctx, id)
+		end(err)
+		return item, err
+	}
+
+	item, err := s.AppRepository.FindByCode(ctx, unique)
+	end(err)
+	return item, err
+}
+
+func (s *AppServiceImpl) FindByCode(ctx context.Context, code string) (*entities.App, error) {
+	end := s.log.Start(ctx, "FindByCode", "code", code)
+	item, err := s.AppRepository.FindByCode(ctx, code)
 	end(err)
 	return item, err
 }

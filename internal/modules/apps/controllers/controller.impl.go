@@ -5,12 +5,14 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/apps/dto"
 	"github.com/open-suite/authorization/internal/modules/apps/repositories"
 	"github.com/open-suite/authorization/internal/modules/apps/services"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
 
@@ -31,10 +33,8 @@ func NewAppController(service services.AppService, sender *response.Sender, appL
 func (c *AppControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	end := c.log.Start(r.Context(), "Find")
 
-	limit := parseUintQuery(r, "limit", 20)
-	offset := parseUintQuery(r, "offset", 0)
-	search := r.URL.Query().Get("search")
-	items, err := c.AppService.Find(r.Context(), limit, offset, search)
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.AppService.Find(r.Context(), params)
 	if err != nil {
 		end(err)
 		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
@@ -45,17 +45,18 @@ func (c *AppControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusOK, "apps.find.success", dto.ListResponse[entities.App]{Items: items})
 }
 
-func (c *AppControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
-	end := c.log.Start(r.Context(), "FindByID")
+func (c *AppControllerImpl) FindByUnique(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByUnique")
 
-	id, err := parseID(r)
-	if err != nil {
+	identifier := strings.TrimSpace(r.PathValue("id"))
+	if identifier == "" {
+		err := errors.New("empty app identifier")
 		end(err)
-		c.response.Error(w, r, http.StatusBadRequest, "apps.invalid_id", nil)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
 		return
 	}
 
-	item, err := c.AppService.FindByID(r.Context(), id)
+	item, err := c.AppService.FindByUnique(r.Context(), identifier)
 	if errors.Is(err, repositories.ErrNotFound) {
 		end(err)
 		c.response.Error(w, r, http.StatusNotFound, "apps.not_found", nil)
@@ -68,7 +69,7 @@ func (c *AppControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	end(nil)
-	c.response.Success(w, r, http.StatusOK, "apps.find_by_id.success", item)
+	c.response.Success(w, r, http.StatusOK, "apps.find_by_unique.success", item)
 }
 
 func (c *AppControllerImpl) Create(w http.ResponseWriter, r *http.Request) {
@@ -152,18 +153,4 @@ func (c *AppControllerImpl) Delete(w http.ResponseWriter, r *http.Request) {
 
 func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("id"), 10, 64)
-}
-
-func parseUintQuery(r *http.Request, key string, fallback uint64) uint64 {
-	value := r.URL.Query().Get(key)
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.ParseUint(value, 10, 64)
-	if err != nil {
-		return fallback
-	}
-
-	return parsed
 }

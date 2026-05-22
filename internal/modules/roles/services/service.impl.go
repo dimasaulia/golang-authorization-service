@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/roles/dto"
 	"github.com/open-suite/authorization/internal/modules/roles/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type RoleServiceImpl struct {
@@ -21,9 +22,9 @@ func NewRoleService(repository repositories.RoleRepository, appLogger *logger.Lo
 	}
 }
 
-func (s *RoleServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Role, error) {
+func (s *RoleServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Role, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.RoleRepository.Find(ctx, limit, offset)
+	items, err := s.RoleRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

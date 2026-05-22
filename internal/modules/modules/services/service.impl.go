@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/modules/dto"
 	"github.com/open-suite/authorization/internal/modules/modules/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type ModuleServiceImpl struct {
@@ -21,9 +22,9 @@ func NewModuleService(repository repositories.ModuleRepository, appLogger *logge
 	}
 }
 
-func (s *ModuleServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Module, error) {
+func (s *ModuleServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Module, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.ModuleRepository.Find(ctx, limit, offset)
+	items, err := s.ModuleRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

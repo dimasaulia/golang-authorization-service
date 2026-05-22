@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -12,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 const tableName = "teams"
@@ -32,15 +32,15 @@ func NewTeamRepository(db *database.Database, appLogger *logger.Logger) TeamRepo
 	}
 }
 
-func (r *TeamRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.Team, error) {
+func (r *TeamRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Team, error) {
 	builder := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
-		Limit(limit).
-		Offset(offset)
+		Limit(params.Limit).
+		Offset(params.Offset)
 
-	if search != "" {
-		pattern := "%" + strings.ToLower(search) + "%"
+	if params.Search != "" {
+		pattern := "%" + params.Search + "%"
 		builder = builder.Where(sq.Expr("LOWER(name) LIKE ?", pattern))
 	}
 

@@ -22,7 +22,7 @@ func (m *AppModuleImpl) Name() string {
 
 func (m *AppModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/apps", m.AppController.Find)
-	mux.HandleFunc("GET /api/v1/apps/{id}", m.AppController.FindByID)
+	mux.HandleFunc("GET /api/v1/apps/{id}", m.AppController.FindByUnique)
 	mux.HandleFunc("POST /api/v1/apps", m.AppController.Create)
 	mux.HandleFunc("PUT /api/v1/apps/{id}", m.AppController.Update)
 	mux.HandleFunc("DELETE /api/v1/apps/{id}", m.AppController.Delete)

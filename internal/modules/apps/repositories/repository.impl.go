@@ -3,7 +3,6 @@ package repositories
 import (
 	"context"
 	"errors"
-	"strings"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -12,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 const tableName = "apps"
@@ -32,15 +32,15 @@ func NewAppRepository(db *database.Database, appLogger *logger.Logger) AppReposi
 	}
 }
 
-func (r *AppRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.App, error) {
+func (r *AppRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.App, error) {
 	builder := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
-		Limit(limit).
-		Offset(offset)
+		Limit(params.Limit).
+		Offset(params.Offset)
 
-	if search != "" {
-		pattern := "%" + strings.ToLower(search) + "%"
+	if params.Search != "" {
+		pattern := "%" + params.Search + "%"
 		builder = builder.Where(sq.Or{
 			sq.Expr("LOWER(name) LIKE ?", pattern),
 		})
@@ -64,6 +64,33 @@ func (r *AppRepositoryImpl) FindByID(ctx context.Context, id int64) (*entities.A
 	query, args, err := r.sb.Select(columns()...).
 		From(tableName).
 		Where(sq.Eq{"id": id}).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.App])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *AppRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.App, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
 		Limit(1).
 		ToSql()
 	if err != nil {

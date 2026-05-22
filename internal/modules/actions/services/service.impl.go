@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/actions/dto"
 	"github.com/open-suite/authorization/internal/modules/actions/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type ActionServiceImpl struct {
@@ -21,9 +22,9 @@ func NewActionService(repository repositories.ActionRepository, appLogger *logge
 	}
 }
 
-func (s *ActionServiceImpl) Find(ctx context.Context, limit uint64, offset uint64, search string) ([]entities.Action, error) {
+func (s *ActionServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Action, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.ActionRepository.Find(ctx, limit, offset, search)
+	items, err := s.ActionRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 const tableName = "roles"
@@ -31,13 +32,24 @@ func NewRoleRepository(db *database.Database, appLogger *logger.Logger) RoleRepo
 	}
 }
 
-func (r *RoleRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Role, error) {
-	query, args, err := r.sb.Select(columns()...).
+func (r *RoleRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Role, error) {
+	builder := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
-		Limit(limit).
-		Offset(offset).
-		ToSql()
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	if params.Search != "" {
+		pattern := "%" + params.Search + "%"
+		builder = builder.Where(sq.Or{
+			sq.Expr("LOWER(code) LIKE ?", pattern),
+			sq.Expr("LOWER(name) LIKE ?", pattern),
+			sq.Expr("LOWER(description) LIKE ?", pattern),
+			sq.Expr("LOWER(scope) LIKE ?", pattern),
+		})
+	}
+
+	query, args, err := builder.ToSql()
 	if err != nil {
 		return nil, err
 	}
