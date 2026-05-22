@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/teams/dto"
@@ -32,6 +34,29 @@ func (s *TeamServiceImpl) Find(ctx context.Context, params shared.ListParams) ([
 func (s *TeamServiceImpl) FindByID(ctx context.Context, id int64) (*entities.Team, error) {
 	end := s.log.Start(ctx, "FindByID", "id", id)
 	item, err := s.TeamRepository.FindByID(ctx, id)
+	end(err)
+	return item, err
+}
+
+func (s *TeamServiceImpl) FindByUnique(ctx context.Context, unique string) (*entities.Team, error) {
+	unique = strings.TrimSpace(unique)
+	end := s.log.Start(ctx, "FindByUnique", "unique", unique)
+
+	id, err := strconv.ParseInt(unique, 10, 64)
+	if err == nil {
+		item, err := s.TeamRepository.FindByID(ctx, id)
+		end(err)
+		return item, err
+	}
+
+	item, err := s.TeamRepository.FindByCode(ctx, unique)
+	end(err)
+	return item, err
+}
+
+func (s *TeamServiceImpl) FindByCode(ctx context.Context, code string) (*entities.Team, error) {
+	end := s.log.Start(ctx, "FindByCode", "code", code)
+	item, err := s.TeamRepository.FindByCode(ctx, code)
 	end(err)
 	return item, err
 }

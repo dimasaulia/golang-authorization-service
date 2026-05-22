@@ -39,13 +39,7 @@ func (r *ModuleRepositoryImpl) Find(ctx context.Context, params shared.ListParam
 		Limit(params.Limit).
 		Offset(params.Offset)
 
-	if params.Search != "" {
-		pattern := "%" + params.Search + "%"
-		builder = builder.Where(sq.Or{
-			sq.Expr("LOWER(code) LIKE ?", pattern),
-			sq.Expr("LOWER(name) LIKE ?", pattern),
-		})
-	}
+	builder = applySearch(builder, params)
 
 	query, args, err := builder.ToSql()
 	if err != nil {
@@ -65,6 +59,83 @@ func (r *ModuleRepositoryImpl) FindByID(ctx context.Context, id int64) (*entitie
 	query, args, err := r.sb.Select(columns()...).
 		From(tableName).
 		Where(sq.Eq{"id": id}).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.Module])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *ModuleRepositoryImpl) FindByAppID(ctx context.Context, appID int64, params shared.ListParams) ([]entities.Module, error) {
+	builder := r.sb.Select(prefixedColumns("m")...).
+		From(tableName + " m").
+		Join("apps a ON a.id = m.app_id").
+		Where(sq.Eq{"a.id": appID}).
+		OrderBy("m.id DESC").
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	builder = applyPrefixedSearch(builder, params, "m")
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Module])
+}
+
+func (r *ModuleRepositoryImpl) FindByAppCode(ctx context.Context, appCode string, params shared.ListParams) ([]entities.Module, error) {
+	builder := r.sb.Select(prefixedColumns("m")...).
+		From(tableName + " m").
+		Join("apps a ON a.id = m.app_id").
+		Where(sq.Expr("LOWER(a.code) = LOWER(?)", appCode)).
+		OrderBy("m.id DESC").
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	builder = applyPrefixedSearch(builder, params, "m")
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Module])
+}
+
+func (r *ModuleRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Module, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
 		Limit(1).
 		ToSql()
 	if err != nil {
@@ -182,8 +253,36 @@ func columns() []string {
 	}
 }
 
+func prefixedColumns(prefix string) []string {
+	values := columns()
+	for index, column := range values {
+		values[index] = prefix + "." + column
+	}
+	return values
+}
+
 func columnList() string {
 	return "id, app_id, code, name, status"
+}
+
+func applySearch(builder sq.SelectBuilder, params shared.ListParams) sq.SelectBuilder {
+	return applyPrefixedSearch(builder, params, "")
+}
+
+func applyPrefixedSearch(builder sq.SelectBuilder, params shared.ListParams, prefix string) sq.SelectBuilder {
+	if params.Search == "" {
+		return builder
+	}
+
+	columnPrefix := ""
+	if prefix != "" {
+		columnPrefix = prefix + "."
+	}
+	pattern := "%" + params.Search + "%"
+	return builder.Where(sq.Or{
+		sq.Expr("LOWER("+columnPrefix+"code) LIKE ?", pattern),
+		sq.Expr("LOWER("+columnPrefix+"name) LIKE ?", pattern),
+	})
 }
 
 func canUpdateTimestamp() bool {

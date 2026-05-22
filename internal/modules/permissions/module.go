@@ -22,6 +22,7 @@ func (m *PermissionModuleImpl) Name() string {
 
 func (m *PermissionModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/permissions", m.PermissionController.Find)
+	mux.HandleFunc("GET /api/v1/permissions/by-app/{app}", m.PermissionController.FindByApp)
 	mux.HandleFunc("GET /api/v1/permissions/{id}", m.PermissionController.FindByUnique)
 	mux.HandleFunc("POST /api/v1/permissions", m.PermissionController.Create)
 	mux.HandleFunc("POST /api/v1/permissions/bulk", m.PermissionController.CreateBulk)

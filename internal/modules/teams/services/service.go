@@ -11,6 +11,8 @@ import (
 type TeamService interface {
 	Find(ctx context.Context, params shared.ListParams) ([]entities.Team, error)
 	FindByID(ctx context.Context, id int64) (*entities.Team, error)
+	FindByUnique(ctx context.Context, unique string) (*entities.Team, error)
+	FindByCode(ctx context.Context, code string) (*entities.Team, error)
 	Create(ctx context.Context, request dto.CreateTeamRequest) (*entities.Team, error)
 	Update(ctx context.Context, id int64, request dto.UpdateTeamRequest) (*entities.Team, error)
 	Delete(ctx context.Context, id int64) error

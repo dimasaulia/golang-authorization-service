@@ -11,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 const tableName = "permissions"
@@ -31,13 +32,16 @@ func NewPermissionRepository(db *database.Database, appLogger *logger.Logger) Pe
 	}
 }
 
-func (r *PermissionRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Permission, error) {
-	query, args, err := r.sb.Select(columns()...).
+func (r *PermissionRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Permission, error) {
+	builder := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
-		Limit(limit).
-		Offset(offset).
-		ToSql()
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	builder = applySearch(builder, params)
+
+	query, args, err := builder.ToSql()
 	if err != nil {
 		return nil, err
 	}
@@ -76,6 +80,56 @@ func (r *PermissionRepositoryImpl) FindByID(ctx context.Context, id int64) (*ent
 	}
 
 	return &item, nil
+}
+
+func (r *PermissionRepositoryImpl) FindByAppID(ctx context.Context, appID int64, params shared.ListParams) ([]entities.Permission, error) {
+	builder := r.sb.Select(prefixedColumns("p")...).
+		From(tableName + " p").
+		Join("apps a ON a.id = p.app_id").
+		Where(sq.Eq{"a.id": appID}).
+		OrderBy("p.id DESC").
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	builder = applyPrefixedSearch(builder, params, "p")
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Permission])
+}
+
+func (r *PermissionRepositoryImpl) FindByAppCode(ctx context.Context, appCode string, params shared.ListParams) ([]entities.Permission, error) {
+	builder := r.sb.Select(prefixedColumns("p")...).
+		From(tableName + " p").
+		Join("apps a ON a.id = p.app_id").
+		Where(sq.Expr("LOWER(a.code) = LOWER(?)", appCode)).
+		OrderBy("p.id DESC").
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	builder = applyPrefixedSearch(builder, params, "p")
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Permission])
 }
 
 func (r *PermissionRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Permission, error) {
@@ -275,8 +329,36 @@ func columns() []string {
 	}
 }
 
+func prefixedColumns(prefix string) []string {
+	values := columns()
+	for index, column := range values {
+		values[index] = prefix + "." + column
+	}
+	return values
+}
+
 func columnList() string {
 	return "id, app_id, module_id, action_id, code, name, description, risk_level, is_system, status, created_at, updated_at"
+}
+
+func applySearch(builder sq.SelectBuilder, params shared.ListParams) sq.SelectBuilder {
+	return applyPrefixedSearch(builder, params, "")
+}
+
+func applyPrefixedSearch(builder sq.SelectBuilder, params shared.ListParams, prefix string) sq.SelectBuilder {
+	if params.Search == "" {
+		return builder
+	}
+
+	columnPrefix := ""
+	if prefix != "" {
+		columnPrefix = prefix + "."
+	}
+	pattern := "%" + params.Search + "%"
+	return builder.Where(sq.Or{
+		sq.Expr("LOWER("+columnPrefix+"code) LIKE ?", pattern),
+		sq.Expr("LOWER("+columnPrefix+"name) LIKE ?", pattern),
+	})
 }
 
 func canUpdateTimestamp() bool {

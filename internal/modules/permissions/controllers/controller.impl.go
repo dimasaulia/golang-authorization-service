@@ -12,6 +12,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/permissions/repositories"
 	"github.com/open-suite/authorization/internal/modules/permissions/services"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
 
@@ -32,9 +33,8 @@ func NewPermissionController(service services.PermissionService, sender *respons
 func (c *PermissionControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	end := c.log.Start(r.Context(), "Find")
 
-	limit := parseUintQuery(r, "limit", 20)
-	offset := parseUintQuery(r, "offset", 0)
-	items, err := c.PermissionService.Find(r.Context(), limit, offset)
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.PermissionService.Find(r.Context(), params)
 	if err != nil {
 		end(err)
 		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
@@ -70,6 +70,29 @@ func (c *PermissionControllerImpl) FindByUnique(w http.ResponseWriter, r *http.R
 
 	end(nil)
 	c.response.Success(w, r, http.StatusOK, "permissions.find_by_unique.success", item)
+}
+
+func (c *PermissionControllerImpl) FindByApp(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByApp")
+
+	appIdentifier := strings.TrimSpace(r.PathValue("app"))
+	if appIdentifier == "" {
+		err := errors.New("empty app identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.PermissionService.FindByApp(r.Context(), appIdentifier, params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "permissions.find_by_app.success", dto.ListResponse[entities.Permission]{Items: items})
 }
 
 func (c *PermissionControllerImpl) Create(w http.ResponseWriter, r *http.Request) {
@@ -174,18 +197,4 @@ func (c *PermissionControllerImpl) Delete(w http.ResponseWriter, r *http.Request
 
 func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("id"), 10, 64)
-}
-
-func parseUintQuery(r *http.Request, key string, fallback uint64) uint64 {
-	value := r.URL.Query().Get(key)
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.ParseUint(value, 10, 64)
-	if err != nil {
-		return fallback
-	}
-
-	return parsed
 }

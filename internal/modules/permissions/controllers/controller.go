@@ -5,6 +5,7 @@ import "net/http"
 type PermissionController interface {
 	Find(w http.ResponseWriter, r *http.Request)
 	FindByUnique(w http.ResponseWriter, r *http.Request)
+	FindByApp(w http.ResponseWriter, r *http.Request)
 	Create(w http.ResponseWriter, r *http.Request)
 	CreateBulk(w http.ResponseWriter, r *http.Request)
 	Update(w http.ResponseWriter, r *http.Request)

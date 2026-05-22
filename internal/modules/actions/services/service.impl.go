@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/actions/dto"
@@ -32,6 +34,29 @@ func (s *ActionServiceImpl) Find(ctx context.Context, params shared.ListParams) 
 func (s *ActionServiceImpl) FindByID(ctx context.Context, id int64) (*entities.Action, error) {
 	end := s.log.Start(ctx, "FindByID", "id", id)
 	item, err := s.ActionRepository.FindByID(ctx, id)
+	end(err)
+	return item, err
+}
+
+func (s *ActionServiceImpl) FindByUnique(ctx context.Context, unique string) (*entities.Action, error) {
+	unique = strings.TrimSpace(unique)
+	end := s.log.Start(ctx, "FindByUnique", "unique", unique)
+
+	id, err := strconv.ParseInt(unique, 10, 64)
+	if err == nil {
+		item, err := s.ActionRepository.FindByID(ctx, id)
+		end(err)
+		return item, err
+	}
+
+	item, err := s.ActionRepository.FindByCode(ctx, unique)
+	end(err)
+	return item, err
+}
+
+func (s *ActionServiceImpl) FindByCode(ctx context.Context, code string) (*entities.Action, error) {
+	end := s.log.Start(ctx, "FindByCode", "code", code)
+	item, err := s.ActionRepository.FindByCode(ctx, code)
 	end(err)
 	return item, err
 }

@@ -85,6 +85,33 @@ func (r *ActionRepositoryImpl) FindByID(ctx context.Context, id int64) (*entitie
 	return &item, nil
 }
 
+func (r *ActionRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Action, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.Action])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
 func (r *ActionRepositoryImpl) Create(ctx context.Context, entity entities.Action) (*entities.Action, error) {
 	values := map[string]any{
 		"code": entity.Code,

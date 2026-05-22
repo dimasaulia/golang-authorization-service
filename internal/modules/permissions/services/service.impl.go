@@ -9,6 +9,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/permissions/dto"
 	"github.com/open-suite/authorization/internal/modules/permissions/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type PermissionServiceImpl struct {
@@ -23,9 +24,9 @@ func NewPermissionService(repository repositories.PermissionRepository, appLogge
 	}
 }
 
-func (s *PermissionServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Permission, error) {
+func (s *PermissionServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Permission, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.PermissionRepository.Find(ctx, limit, offset)
+	items, err := s.PermissionRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }
@@ -58,6 +59,22 @@ func (s *PermissionServiceImpl) FindByCode(ctx context.Context, code string) (*e
 	item, err := s.PermissionRepository.FindByCode(ctx, code)
 	end(err)
 	return item, err
+}
+
+func (s *PermissionServiceImpl) FindByApp(ctx context.Context, appUnique string, params shared.ListParams) ([]entities.Permission, error) {
+	appUnique = strings.TrimSpace(appUnique)
+	end := s.log.Start(ctx, "FindByApp", "app_unique", appUnique)
+
+	id, err := strconv.ParseInt(appUnique, 10, 64)
+	if err == nil {
+		items, err := s.PermissionRepository.FindByAppID(ctx, id, params)
+		end(err, "count", len(items))
+		return items, err
+	}
+
+	items, err := s.PermissionRepository.FindByAppCode(ctx, appUnique, params)
+	end(err, "count", len(items))
+	return items, err
 }
 
 func (s *PermissionServiceImpl) Create(ctx context.Context, request dto.CreatePermissionRequest) (*entities.Permission, error) {

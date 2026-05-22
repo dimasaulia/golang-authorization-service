@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/actions/dto"
@@ -44,17 +45,18 @@ func (c *ActionControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusOK, "actions.find.success", dto.ListResponse[entities.Action]{Items: items})
 }
 
-func (c *ActionControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
-	end := c.log.Start(r.Context(), "FindByID")
+func (c *ActionControllerImpl) FindByUnique(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByUnique")
 
-	id, err := parseID(r)
-	if err != nil {
+	identifier := strings.TrimSpace(r.PathValue("id"))
+	if identifier == "" {
+		err := errors.New("empty action identifier")
 		end(err)
-		c.response.Error(w, r, http.StatusBadRequest, "actions.invalid_id", nil)
+		c.response.Error(w, r, http.StatusBadRequest, "actions.empty_id", nil)
 		return
 	}
 
-	item, err := c.ActionService.FindByID(r.Context(), id)
+	item, err := c.ActionService.FindByUnique(r.Context(), identifier)
 	if errors.Is(err, repositories.ErrNotFound) {
 		end(err)
 		c.response.Error(w, r, http.StatusNotFound, "actions.not_found", nil)
@@ -67,7 +69,7 @@ func (c *ActionControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) 
 	}
 
 	end(nil)
-	c.response.Success(w, r, http.StatusOK, "actions.find_by_id.success", item)
+	c.response.Success(w, r, http.StatusOK, "actions.find_by_unique.success", item)
 }
 
 func (c *ActionControllerImpl) Create(w http.ResponseWriter, r *http.Request) {

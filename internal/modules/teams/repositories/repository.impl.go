@@ -85,6 +85,33 @@ func (r *TeamRepositoryImpl) FindByID(ctx context.Context, id int64) (*entities.
 	return &item, nil
 }
 
+func (r *TeamRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Team, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.Team])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
 func (r *TeamRepositoryImpl) Create(ctx context.Context, entity entities.Team) (*entities.Team, error) {
 	values := map[string]any{
 		"organization_id": entity.OrganizationId,

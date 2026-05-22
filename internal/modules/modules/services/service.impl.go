@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/modules/dto"
@@ -34,6 +36,45 @@ func (s *ModuleServiceImpl) FindByID(ctx context.Context, id int64) (*entities.M
 	item, err := s.ModuleRepository.FindByID(ctx, id)
 	end(err)
 	return item, err
+}
+
+func (s *ModuleServiceImpl) FindByUnique(ctx context.Context, unique string) (*entities.Module, error) {
+	unique = strings.TrimSpace(unique)
+	end := s.log.Start(ctx, "FindByUnique", "unique", unique)
+
+	id, err := strconv.ParseInt(unique, 10, 64)
+	if err == nil {
+		item, err := s.ModuleRepository.FindByID(ctx, id)
+		end(err)
+		return item, err
+	}
+
+	item, err := s.ModuleRepository.FindByCode(ctx, unique)
+	end(err)
+	return item, err
+}
+
+func (s *ModuleServiceImpl) FindByCode(ctx context.Context, code string) (*entities.Module, error) {
+	end := s.log.Start(ctx, "FindByCode", "code", code)
+	item, err := s.ModuleRepository.FindByCode(ctx, code)
+	end(err)
+	return item, err
+}
+
+func (s *ModuleServiceImpl) FindByApp(ctx context.Context, appUnique string, params shared.ListParams) ([]entities.Module, error) {
+	appUnique = strings.TrimSpace(appUnique)
+	end := s.log.Start(ctx, "FindByApp", "app_unique", appUnique)
+
+	id, err := strconv.ParseInt(appUnique, 10, 64)
+	if err == nil {
+		items, err := s.ModuleRepository.FindByAppID(ctx, id, params)
+		end(err, "count", len(items))
+		return items, err
+	}
+
+	items, err := s.ModuleRepository.FindByAppCode(ctx, appUnique, params)
+	end(err, "count", len(items))
+	return items, err
 }
 
 func (s *ModuleServiceImpl) Create(ctx context.Context, request dto.CreateModuleRequest) (*entities.Module, error) {

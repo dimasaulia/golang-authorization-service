@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/modules/dto"
@@ -44,17 +45,18 @@ func (c *ModuleControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusOK, "modules.find.success", dto.ListResponse[entities.Module]{Items: items})
 }
 
-func (c *ModuleControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
-	end := c.log.Start(r.Context(), "FindByID")
+func (c *ModuleControllerImpl) FindByUnique(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByUnique")
 
-	id, err := parseID(r)
-	if err != nil {
+	identifier := strings.TrimSpace(r.PathValue("id"))
+	if identifier == "" {
+		err := errors.New("empty module identifier")
 		end(err)
-		c.response.Error(w, r, http.StatusBadRequest, "modules.invalid_id", nil)
+		c.response.Error(w, r, http.StatusBadRequest, "modules.empty_id", nil)
 		return
 	}
 
-	item, err := c.ModuleService.FindByID(r.Context(), id)
+	item, err := c.ModuleService.FindByUnique(r.Context(), identifier)
 	if errors.Is(err, repositories.ErrNotFound) {
 		end(err)
 		c.response.Error(w, r, http.StatusNotFound, "modules.not_found", nil)
@@ -67,7 +69,30 @@ func (c *ModuleControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) 
 	}
 
 	end(nil)
-	c.response.Success(w, r, http.StatusOK, "modules.find_by_id.success", item)
+	c.response.Success(w, r, http.StatusOK, "modules.find_by_unique.success", item)
+}
+
+func (c *ModuleControllerImpl) FindByApp(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByApp")
+
+	appIdentifier := strings.TrimSpace(r.PathValue("app"))
+	if appIdentifier == "" {
+		err := errors.New("empty app identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.ModuleService.FindByApp(r.Context(), appIdentifier, params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "modules.find_by_app.success", dto.ListResponse[entities.Module]{Items: items})
 }
 
 func (c *ModuleControllerImpl) Create(w http.ResponseWriter, r *http.Request) {

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/teams/dto"
@@ -44,17 +45,18 @@ func (c *TeamControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusOK, "teams.find.success", dto.ListResponse[entities.Team]{Items: items})
 }
 
-func (c *TeamControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
-	end := c.log.Start(r.Context(), "FindByID")
+func (c *TeamControllerImpl) FindByUnique(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByUnique")
 
-	id, err := parseID(r)
-	if err != nil {
+	identifier := strings.TrimSpace(r.PathValue("id"))
+	if identifier == "" {
+		err := errors.New("empty team identifier")
 		end(err)
-		c.response.Error(w, r, http.StatusBadRequest, "teams.invalid_id", nil)
+		c.response.Error(w, r, http.StatusBadRequest, "teams.empty_id", nil)
 		return
 	}
 
-	item, err := c.TeamService.FindByID(r.Context(), id)
+	item, err := c.TeamService.FindByUnique(r.Context(), identifier)
 	if errors.Is(err, repositories.ErrNotFound) {
 		end(err)
 		c.response.Error(w, r, http.StatusNotFound, "teams.not_found", nil)
@@ -67,7 +69,7 @@ func (c *TeamControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	end(nil)
-	c.response.Success(w, r, http.StatusOK, "teams.find_by_id.success", item)
+	c.response.Success(w, r, http.StatusOK, "teams.find_by_unique.success", item)
 }
 
 func (c *TeamControllerImpl) Create(w http.ResponseWriter, r *http.Request) {

@@ -22,7 +22,7 @@ func (m *TeamModuleImpl) Name() string {
 
 func (m *TeamModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/teams", m.TeamController.Find)
-	mux.HandleFunc("GET /api/v1/teams/{id}", m.TeamController.FindByID)
+	mux.HandleFunc("GET /api/v1/teams/{id}", m.TeamController.FindByUnique)
 	mux.HandleFunc("POST /api/v1/teams", m.TeamController.Create)
 	mux.HandleFunc("PUT /api/v1/teams/{id}", m.TeamController.Update)
 	mux.HandleFunc("DELETE /api/v1/teams/{id}", m.TeamController.Delete)
