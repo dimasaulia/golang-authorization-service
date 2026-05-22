@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/users/dto"
 	"github.com/open-suite/authorization/internal/modules/users/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type UserServiceImpl struct {
@@ -21,9 +22,9 @@ func NewUserService(repository repositories.UserRepository, appLogger *logger.Lo
 	}
 }
 
-func (s *UserServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.User, error) {
+func (s *UserServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.User, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.UserRepository.Find(ctx, limit, offset)
+	items, err := s.UserRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

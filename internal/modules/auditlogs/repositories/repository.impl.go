@@ -11,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 const tableName = "audit_logs"
@@ -31,12 +32,12 @@ func NewAuditLogRepository(db *database.Database, appLogger *logger.Logger) Audi
 	}
 }
 
-func (r *AuditLogRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.AuditLog, error) {
+func (r *AuditLogRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.AuditLog, error) {
 	query, args, err := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
-		Limit(limit).
-		Offset(offset).
+		Limit(params.Limit).
+		Offset(params.Offset).
 		ToSql()
 	if err != nil {
 		return nil, err

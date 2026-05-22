@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/teammembers/dto"
 	"github.com/open-suite/authorization/internal/modules/teammembers/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type TeamMemberServiceImpl struct {
@@ -21,9 +22,9 @@ func NewTeamMemberService(repository repositories.TeamMemberRepository, appLogge
 	}
 }
 
-func (s *TeamMemberServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.TeamMember, error) {
+func (s *TeamMemberServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.TeamMember, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.TeamMemberRepository.Find(ctx, limit, offset)
+	items, err := s.TeamMemberRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

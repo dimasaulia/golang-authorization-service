@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/appclients/dto"
 	"github.com/open-suite/authorization/internal/modules/appclients/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type AppClientServiceImpl struct {
@@ -21,9 +22,9 @@ func NewAppClientService(repository repositories.AppClientRepository, appLogger 
 	}
 }
 
-func (s *AppClientServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.AppClient, error) {
+func (s *AppClientServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.AppClient, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.AppClientRepository.Find(ctx, limit, offset)
+	items, err := s.AppClientRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

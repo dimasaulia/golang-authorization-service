@@ -11,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 const tableName = "user_permission_overrides"
@@ -31,12 +32,12 @@ func NewUserPermissionOverrideRepository(db *database.Database, appLogger *logge
 	}
 }
 
-func (r *UserPermissionOverrideRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.UserPermissionOverride, error) {
+func (r *UserPermissionOverrideRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.UserPermissionOverride, error) {
 	query, args, err := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
-		Limit(limit).
-		Offset(offset).
+		Limit(params.Limit).
+		Offset(params.Offset).
 		ToSql()
 	if err != nil {
 		return nil, err

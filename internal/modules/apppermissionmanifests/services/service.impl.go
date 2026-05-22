@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/apppermissionmanifests/dto"
 	"github.com/open-suite/authorization/internal/modules/apppermissionmanifests/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type AppPermissionManifestServiceImpl struct {
@@ -21,9 +22,9 @@ func NewAppPermissionManifestService(repository repositories.AppPermissionManife
 	}
 }
 
-func (s *AppPermissionManifestServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.AppPermissionManifest, error) {
+func (s *AppPermissionManifestServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.AppPermissionManifest, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.AppPermissionManifestRepository.Find(ctx, limit, offset)
+	items, err := s.AppPermissionManifestRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/appclients/repositories"
 	"github.com/open-suite/authorization/internal/modules/appclients/services"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
 
@@ -31,9 +32,8 @@ func NewAppClientController(service services.AppClientService, sender *response.
 func (c *AppClientControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	end := c.log.Start(r.Context(), "Find")
 
-	limit := parseUintQuery(r, "limit", 20)
-	offset := parseUintQuery(r, "offset", 0)
-	items, err := c.AppClientService.Find(r.Context(), limit, offset)
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.AppClientService.Find(r.Context(), params)
 	if err != nil {
 		end(err)
 		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
@@ -151,18 +151,4 @@ func (c *AppClientControllerImpl) Delete(w http.ResponseWriter, r *http.Request)
 
 func parseID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("id"), 10, 64)
-}
-
-func parseUintQuery(r *http.Request, key string, fallback uint64) uint64 {
-	value := r.URL.Query().Get(key)
-	if value == "" {
-		return fallback
-	}
-
-	parsed, err := strconv.ParseUint(value, 10, 64)
-	if err != nil {
-		return fallback
-	}
-
-	return parsed
 }

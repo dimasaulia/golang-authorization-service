@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/teamroles/dto"
 	"github.com/open-suite/authorization/internal/modules/teamroles/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type TeamRoleServiceImpl struct {
@@ -21,9 +22,9 @@ func NewTeamRoleService(repository repositories.TeamRoleRepository, appLogger *l
 	}
 }
 
-func (s *TeamRoleServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.TeamRole, error) {
+func (s *TeamRoleServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.TeamRole, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.TeamRoleRepository.Find(ctx, limit, offset)
+	items, err := s.TeamRoleRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

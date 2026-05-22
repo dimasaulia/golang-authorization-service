@@ -4,10 +4,11 @@ import (
 	"context"
 
 	"github.com/open-suite/authorization/internal/entities"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type ReleaseNoteRepository interface {
-	Find(ctx context.Context, limit uint64, offset uint64) ([]entities.ReleaseNote, error)
+	Find(ctx context.Context, params shared.ListParams) ([]entities.ReleaseNote, error)
 	FindByID(ctx context.Context, id int64) (*entities.ReleaseNote, error)
 	Create(ctx context.Context, releaseNote entities.ReleaseNote) (*entities.ReleaseNote, error)
 	Update(ctx context.Context, id int64, data map[string]any) (*entities.ReleaseNote, error)

@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/menus/dto"
 	"github.com/open-suite/authorization/internal/modules/menus/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type MenuServiceImpl struct {
@@ -21,9 +22,9 @@ func NewMenuService(repository repositories.MenuRepository, appLogger *logger.Lo
 	}
 }
 
-func (s *MenuServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Menu, error) {
+func (s *MenuServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Menu, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.MenuRepository.Find(ctx, limit, offset)
+	items, err := s.MenuRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

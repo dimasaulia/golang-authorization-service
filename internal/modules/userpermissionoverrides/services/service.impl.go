@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/userpermissionoverrides/dto"
 	"github.com/open-suite/authorization/internal/modules/userpermissionoverrides/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type UserPermissionOverrideServiceImpl struct {
@@ -21,9 +22,9 @@ func NewUserPermissionOverrideService(repository repositories.UserPermissionOver
 	}
 }
 
-func (s *UserPermissionOverrideServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.UserPermissionOverride, error) {
+func (s *UserPermissionOverrideServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.UserPermissionOverride, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.UserPermissionOverrideRepository.Find(ctx, limit, offset)
+	items, err := s.UserPermissionOverrideRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

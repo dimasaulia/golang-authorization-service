@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/organizations/dto"
 	"github.com/open-suite/authorization/internal/modules/organizations/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type OrganizationServiceImpl struct {
@@ -21,9 +22,9 @@ func NewOrganizationService(repository repositories.OrganizationRepository, appL
 	}
 }
 
-func (s *OrganizationServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.Organization, error) {
+func (s *OrganizationServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Organization, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.OrganizationRepository.Find(ctx, limit, offset)
+	items, err := s.OrganizationRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }

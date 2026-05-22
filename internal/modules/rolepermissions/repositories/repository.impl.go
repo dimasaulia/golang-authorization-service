@@ -11,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 const tableName = "role_permissions"
@@ -31,12 +32,12 @@ func NewRolePermissionRepository(db *database.Database, appLogger *logger.Logger
 	}
 }
 
-func (r *RolePermissionRepositoryImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.RolePermission, error) {
+func (r *RolePermissionRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.RolePermission, error) {
 	query, args, err := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
-		Limit(limit).
-		Offset(offset).
+		Limit(params.Limit).
+		Offset(params.Offset).
 		ToSql()
 	if err != nil {
 		return nil, err

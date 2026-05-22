@@ -8,6 +8,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/releasenotes/dto"
 	"github.com/open-suite/authorization/internal/modules/releasenotes/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type ReleaseNoteServiceImpl struct {
@@ -22,9 +23,9 @@ func NewReleaseNoteService(releaseNoteRepository repositories.ReleaseNoteReposit
 	}
 }
 
-func (s *ReleaseNoteServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.ReleaseNote, error) {
+func (s *ReleaseNoteServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.ReleaseNote, error) {
 	end := s.log.Start(ctx, "Find")
-	releaseNotes, err := s.ReleaseNoteRepository.Find(ctx, limit, offset)
+	releaseNotes, err := s.ReleaseNoteRepository.Find(ctx, params)
 	end(err, "count", len(releaseNotes))
 	return releaseNotes, err
 }

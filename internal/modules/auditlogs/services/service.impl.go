@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/auditlogs/dto"
 	"github.com/open-suite/authorization/internal/modules/auditlogs/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared"
 )
 
 type AuditLogServiceImpl struct {
@@ -21,9 +22,9 @@ func NewAuditLogService(repository repositories.AuditLogRepository, appLogger *l
 	}
 }
 
-func (s *AuditLogServiceImpl) Find(ctx context.Context, limit uint64, offset uint64) ([]entities.AuditLog, error) {
+func (s *AuditLogServiceImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.AuditLog, error) {
 	end := s.log.Start(ctx, "Find")
-	items, err := s.AuditLogRepository.Find(ctx, limit, offset)
+	items, err := s.AuditLogRepository.Find(ctx, params)
 	end(err, "count", len(items))
 	return items, err
 }
