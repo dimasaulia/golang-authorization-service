@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/permissions/dto"
@@ -44,17 +45,18 @@ func (c *PermissionControllerImpl) Find(w http.ResponseWriter, r *http.Request) 
 	c.response.Success(w, r, http.StatusOK, "permissions.find.success", dto.ListResponse[entities.Permission]{Items: items})
 }
 
-func (c *PermissionControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
-	end := c.log.Start(r.Context(), "FindByID")
+func (c *PermissionControllerImpl) FindByUnique(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByUnique")
 
-	id, err := parseID(r)
-	if err != nil {
+	identifier := strings.TrimSpace(r.PathValue("id"))
+	if identifier == "" {
+		err := errors.New("empty permission identifier")
 		end(err)
-		c.response.Error(w, r, http.StatusBadRequest, "permissions.invalid_id", nil)
+		c.response.Error(w, r, http.StatusBadRequest, "permissions.empty_id", nil)
 		return
 	}
 
-	item, err := c.PermissionService.FindByID(r.Context(), id)
+	item, err := c.PermissionService.FindByUnique(r.Context(), identifier)
 	if errors.Is(err, repositories.ErrNotFound) {
 		end(err)
 		c.response.Error(w, r, http.StatusNotFound, "permissions.not_found", nil)
@@ -67,7 +69,7 @@ func (c *PermissionControllerImpl) FindByID(w http.ResponseWriter, r *http.Reque
 	}
 
 	end(nil)
-	c.response.Success(w, r, http.StatusOK, "permissions.find_by_id.success", item)
+	c.response.Success(w, r, http.StatusOK, "permissions.find_by_unique.success", item)
 }
 
 func (c *PermissionControllerImpl) Create(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +91,27 @@ func (c *PermissionControllerImpl) Create(w http.ResponseWriter, r *http.Request
 
 	end(nil)
 	c.response.Success(w, r, http.StatusCreated, "permissions.create.success", item)
+}
+
+func (c *PermissionControllerImpl) CreateBulk(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "CreateBulk")
+
+	var request []dto.CreatePermissionRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "permissions.invalid_payload", nil)
+		return
+	}
+
+	items, err := c.PermissionService.CreateBulk(r.Context(), request)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "permissions.create_bulk.failed", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusCreated, "permissions.create_bulk.success", dto.ListResponse[entities.Permission]{Items: items})
 }
 
 func (c *PermissionControllerImpl) Update(w http.ResponseWriter, r *http.Request) {

@@ -78,6 +78,33 @@ func (r *PermissionRepositoryImpl) FindByID(ctx context.Context, id int64) (*ent
 	return &item, nil
 }
 
+func (r *PermissionRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Permission, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.Permission])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
 func (r *PermissionRepositoryImpl) Create(ctx context.Context, entity entities.Permission) (*entities.Permission, error) {
 	values := map[string]any{
 		"app_id":      entity.AppId,
@@ -111,6 +138,70 @@ func (r *PermissionRepositoryImpl) Create(ctx context.Context, entity entities.P
 	}
 
 	return &created, nil
+}
+
+func (r *PermissionRepositoryImpl) CreateBulk(ctx context.Context, items []entities.Permission) ([]entities.Permission, error) {
+	if len(items) == 0 {
+		return []entities.Permission{}, nil
+	}
+
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	builder := r.sb.Insert(tableName).
+		Columns(
+			"app_id",
+			"module_id",
+			"action_id",
+			"code",
+			"name",
+			"description",
+			"risk_level",
+			"is_system",
+			"status",
+		).
+		Suffix("RETURNING " + columnList())
+
+	for _, entity := range items {
+		builder = builder.Values(
+			entity.AppId,
+			entity.ModuleId,
+			entity.ActionId,
+			entity.Code,
+			entity.Name,
+			entity.Description,
+			entity.RiskLevel,
+			entity.IsSystem,
+			entity.Status,
+		)
+	}
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	created, err := pgx.CollectRows(rows, pgx.RowToStructByName[entities.Permission])
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return created, nil
 }
 
 func (r *PermissionRepositoryImpl) Update(ctx context.Context, id int64, data map[string]any) (*entities.Permission, error) {

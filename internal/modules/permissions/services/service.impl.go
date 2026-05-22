@@ -2,6 +2,8 @@ package services
 
 import (
 	"context"
+	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/permissions/dto"
@@ -35,6 +37,29 @@ func (s *PermissionServiceImpl) FindByID(ctx context.Context, id int64) (*entiti
 	return item, err
 }
 
+func (s *PermissionServiceImpl) FindByUnique(ctx context.Context, unique string) (*entities.Permission, error) {
+	unique = strings.TrimSpace(unique)
+	end := s.log.Start(ctx, "FindByUnique", "unique", unique)
+
+	id, err := strconv.ParseInt(unique, 10, 64)
+	if err == nil {
+		item, err := s.PermissionRepository.FindByID(ctx, id)
+		end(err)
+		return item, err
+	}
+
+	item, err := s.PermissionRepository.FindByCode(ctx, unique)
+	end(err)
+	return item, err
+}
+
+func (s *PermissionServiceImpl) FindByCode(ctx context.Context, code string) (*entities.Permission, error) {
+	end := s.log.Start(ctx, "FindByCode", "code", code)
+	item, err := s.PermissionRepository.FindByCode(ctx, code)
+	end(err)
+	return item, err
+}
+
 func (s *PermissionServiceImpl) Create(ctx context.Context, request dto.CreatePermissionRequest) (*entities.Permission, error) {
 	end := s.log.Start(ctx, "Create")
 	item, err := s.PermissionRepository.Create(ctx, entities.Permission{
@@ -50,6 +75,29 @@ func (s *PermissionServiceImpl) Create(ctx context.Context, request dto.CreatePe
 	})
 	end(err)
 	return item, err
+}
+
+func (s *PermissionServiceImpl) CreateBulk(ctx context.Context, request []dto.CreatePermissionRequest) ([]entities.Permission, error) {
+	end := s.log.Start(ctx, "CreateBulk", "count", len(request))
+
+	items := make([]entities.Permission, 0, len(request))
+	for _, item := range request {
+		items = append(items, entities.Permission{
+			AppId:       item.AppId,
+			ModuleId:    item.ModuleId,
+			ActionId:    item.ActionId,
+			Code:        item.Code,
+			Name:        item.Name,
+			Description: item.Description,
+			RiskLevel:   item.RiskLevel,
+			IsSystem:    item.IsSystem,
+			Status:      item.Status,
+		})
+	}
+
+	created, err := s.PermissionRepository.CreateBulk(ctx, items)
+	end(err, "count", len(created))
+	return created, err
 }
 
 func (s *PermissionServiceImpl) Update(ctx context.Context, id int64, request dto.UpdatePermissionRequest) (*entities.Permission, error) {
