@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/roles/dto"
@@ -44,17 +45,18 @@ func (c *RoleControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusOK, "roles.find.success", dto.ListResponse[entities.Role]{Items: items})
 }
 
-func (c *RoleControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
-	end := c.log.Start(r.Context(), "FindByID")
+func (c *RoleControllerImpl) FindByUnique(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByUnique")
 
-	id, err := parseID(r)
-	if err != nil {
+	identifier := strings.TrimSpace(r.PathValue("id"))
+	if identifier == "" {
+		err := errors.New("empty role identifier")
 		end(err)
-		c.response.Error(w, r, http.StatusBadRequest, "roles.invalid_id", nil)
+		c.response.Error(w, r, http.StatusBadRequest, "roles.empty_id", nil)
 		return
 	}
 
-	item, err := c.RoleService.FindByID(r.Context(), id)
+	item, err := c.RoleService.FindByUnique(r.Context(), identifier)
 	if errors.Is(err, repositories.ErrNotFound) {
 		end(err)
 		c.response.Error(w, r, http.StatusNotFound, "roles.not_found", nil)
@@ -67,7 +69,30 @@ func (c *RoleControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	end(nil)
-	c.response.Success(w, r, http.StatusOK, "roles.find_by_id.success", item)
+	c.response.Success(w, r, http.StatusOK, "roles.find_by_unique.success", item)
+}
+
+func (c *RoleControllerImpl) FindByApp(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByApp")
+
+	appIdentifier := strings.TrimSpace(r.PathValue("app"))
+	if appIdentifier == "" {
+		err := errors.New("empty app identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.RoleService.FindByApp(r.Context(), appIdentifier, params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "roles.find_by_app.success", dto.ListResponse[entities.Role]{Items: items})
 }
 
 func (c *RoleControllerImpl) Create(w http.ResponseWriter, r *http.Request) {

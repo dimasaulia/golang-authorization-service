@@ -3,6 +3,8 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -88,6 +90,55 @@ func (r *RoleRepositoryImpl) FindByID(ctx context.Context, id int64) (*entities.
 	}
 
 	return &item, nil
+}
+
+func (r *RoleRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Role, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.Role])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *RoleRepositoryImpl) FindByAppID(ctx context.Context, appID int64, params shared.ListParams) ([]entities.Role, error) {
+	query, args := buildFindByAppQuery("a.id", appID, params)
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Role])
+}
+
+func (r *RoleRepositoryImpl) FindByAppCode(ctx context.Context, appCode string, params shared.ListParams) ([]entities.Role, error) {
+	query, args := buildFindByAppQuery("LOWER(a.code)", strings.ToLower(appCode), params)
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Role])
 }
 
 func (r *RoleRepositoryImpl) Create(ctx context.Context, entity entities.Role) (*entities.Role, error) {
@@ -196,6 +247,62 @@ func columns() []string {
 
 func columnList() string {
 	return "id, organization_id, app_id, code, name, description, scope, is_system, status, created_at, updated_at"
+}
+
+func prefixedColumnList(prefix string) string {
+	columns := columns()
+	for index, column := range columns {
+		columns[index] = prefix + "." + column
+	}
+	return strings.Join(columns, ", ")
+}
+
+func buildFindByAppQuery(appColumn string, appValue any, params shared.ListParams) (string, []any) {
+	args := []any{}
+	nextArg := func(value any) string {
+		args = append(args, value)
+		return fmt.Sprintf("$%d", len(args))
+	}
+
+	generalWhere := "r.app_id IS NULL"
+	appWhere := appColumn + " = " + nextArg(appValue)
+	if params.Search != "" {
+		pattern := "%" + params.Search + "%"
+		generalWhere += roleSearchClause("r", nextArg, pattern)
+		appWhere += roleSearchClause("r", nextArg, pattern)
+	}
+
+	limitPlaceholder := nextArg(params.Limit)
+	offsetPlaceholder := nextArg(params.Offset)
+	roleColumns := prefixedColumnList("r")
+	query := fmt.Sprintf(
+		"(SELECT %s FROM %s r WHERE %s) UNION (SELECT %s FROM %s r JOIN apps a ON a.id = r.app_id WHERE %s) ORDER BY id DESC LIMIT %s OFFSET %s",
+		roleColumns,
+		tableName,
+		generalWhere,
+		roleColumns,
+		tableName,
+		appWhere,
+		limitPlaceholder,
+		offsetPlaceholder,
+	)
+
+	return query, args
+}
+
+func roleSearchClause(prefix string, nextArg func(any) string, pattern string) string {
+	columnPrefix := prefix + "."
+	return fmt.Sprintf(
+		" AND (LOWER(%scode) LIKE %s OR LOWER(%sname) LIKE %s OR LOWER(%sdescription) LIKE %s OR LOWER(%sscope) LIKE %s)",
+		columnPrefix,
+		nextArg(pattern),
+		columnPrefix,
+		nextArg(pattern),
+		columnPrefix,
+		nextArg(pattern),
+		columnPrefix,
+		nextArg(pattern),
+	)
 }
 
 func canUpdateTimestamp() bool {

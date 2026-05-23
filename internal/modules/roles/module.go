@@ -22,7 +22,8 @@ func (m *RoleModuleImpl) Name() string {
 
 func (m *RoleModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/roles", m.RoleController.Find)
-	mux.HandleFunc("GET /api/v1/roles/{id}", m.RoleController.FindByID)
+	mux.HandleFunc("GET /api/v1/roles/by-app/{app}", m.RoleController.FindByApp)
+	mux.HandleFunc("GET /api/v1/roles/{id}", m.RoleController.FindByUnique)
 	mux.HandleFunc("POST /api/v1/roles", m.RoleController.Create)
 	mux.HandleFunc("PUT /api/v1/roles/{id}", m.RoleController.Update)
 	mux.HandleFunc("DELETE /api/v1/roles/{id}", m.RoleController.Delete)
