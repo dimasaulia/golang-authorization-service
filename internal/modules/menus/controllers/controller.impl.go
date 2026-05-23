@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/menus/dto"
@@ -44,17 +45,18 @@ func (c *MenuControllerImpl) Find(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusOK, "menus.find.success", dto.ListResponse[entities.Menu]{Items: items})
 }
 
-func (c *MenuControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
-	end := c.log.Start(r.Context(), "FindByID")
+func (c *MenuControllerImpl) FindByUnique(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByUnique")
 
-	id, err := parseID(r)
-	if err != nil {
+	identifier := strings.TrimSpace(r.PathValue("id"))
+	if identifier == "" {
+		err := errors.New("empty menu identifier")
 		end(err)
-		c.response.Error(w, r, http.StatusBadRequest, "menus.invalid_id", nil)
+		c.response.Error(w, r, http.StatusBadRequest, "menus.empty_id", nil)
 		return
 	}
 
-	item, err := c.MenuService.FindByID(r.Context(), id)
+	item, err := c.MenuService.FindByUnique(r.Context(), identifier)
 	if errors.Is(err, repositories.ErrNotFound) {
 		end(err)
 		c.response.Error(w, r, http.StatusNotFound, "menus.not_found", nil)
@@ -67,7 +69,30 @@ func (c *MenuControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
 	}
 
 	end(nil)
-	c.response.Success(w, r, http.StatusOK, "menus.find_by_id.success", item)
+	c.response.Success(w, r, http.StatusOK, "menus.find_by_unique.success", item)
+}
+
+func (c *MenuControllerImpl) FindByApp(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByApp")
+
+	appIdentifier := strings.TrimSpace(r.PathValue("app"))
+	if appIdentifier == "" {
+		err := errors.New("empty app identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.MenuService.FindByApp(r.Context(), appIdentifier, params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "menus.find_by_app.success", dto.ListResponse[entities.Menu]{Items: items})
 }
 
 func (c *MenuControllerImpl) Create(w http.ResponseWriter, r *http.Request) {
@@ -89,6 +114,27 @@ func (c *MenuControllerImpl) Create(w http.ResponseWriter, r *http.Request) {
 
 	end(nil)
 	c.response.Success(w, r, http.StatusCreated, "menus.create.success", item)
+}
+
+func (c *MenuControllerImpl) CreateBulk(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "CreateBulk")
+
+	var request []dto.CreateMenuRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "menus.invalid_payload", nil)
+		return
+	}
+
+	items, err := c.MenuService.CreateBulk(r.Context(), request)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "menus.create_bulk.failed", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusCreated, "menus.create_bulk.success", dto.ListResponse[entities.Menu]{Items: items})
 }
 
 func (c *MenuControllerImpl) Update(w http.ResponseWriter, r *http.Request) {

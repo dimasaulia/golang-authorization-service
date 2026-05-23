@@ -22,8 +22,10 @@ func (m *MenuModuleImpl) Name() string {
 
 func (m *MenuModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/menus", m.MenuController.Find)
-	mux.HandleFunc("GET /api/v1/menus/{id}", m.MenuController.FindByID)
+	mux.HandleFunc("GET /api/v1/menus/by-app/{app}", m.MenuController.FindByApp)
+	mux.HandleFunc("GET /api/v1/menus/{id}", m.MenuController.FindByUnique)
 	mux.HandleFunc("POST /api/v1/menus", m.MenuController.Create)
+	mux.HandleFunc("POST /api/v1/menus/bulk", m.MenuController.CreateBulk)
 	mux.HandleFunc("PUT /api/v1/menus/{id}", m.MenuController.Update)
 	mux.HandleFunc("DELETE /api/v1/menus/{id}", m.MenuController.Delete)
 }

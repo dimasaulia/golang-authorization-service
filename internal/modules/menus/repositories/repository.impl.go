@@ -33,12 +33,15 @@ func NewMenuRepository(db *database.Database, appLogger *logger.Logger) MenuRepo
 }
 
 func (r *MenuRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Menu, error) {
-	query, args, err := r.sb.Select(columns()...).
+	builder := r.sb.Select(columns()...).
 		From(tableName).
 		OrderBy("id DESC").
 		Limit(params.Limit).
-		Offset(params.Offset).
-		ToSql()
+		Offset(params.Offset)
+
+	builder = applySearch(builder, params)
+
+	query, args, err := builder.ToSql()
 	if err != nil {
 		return nil, err
 	}
@@ -79,6 +82,83 @@ func (r *MenuRepositoryImpl) FindByID(ctx context.Context, id int64) (*entities.
 	return &item, nil
 }
 
+func (r *MenuRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Menu, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.Menu])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *MenuRepositoryImpl) FindByAppID(ctx context.Context, appID int64, params shared.ListParams) ([]entities.Menu, error) {
+	builder := r.sb.Select(prefixedColumns("m")...).
+		From(tableName + " m").
+		Join("apps a ON a.id = m.app_id").
+		Where(sq.Eq{"a.id": appID}).
+		OrderBy("m.id DESC").
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	builder = applyPrefixedSearch(builder, params, "m")
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Menu])
+}
+
+func (r *MenuRepositoryImpl) FindByAppCode(ctx context.Context, appCode string, params shared.ListParams) ([]entities.Menu, error) {
+	builder := r.sb.Select(prefixedColumns("m")...).
+		From(tableName + " m").
+		Join("apps a ON a.id = m.app_id").
+		Where(sq.Expr("LOWER(a.code) = LOWER(?)", appCode)).
+		OrderBy("m.id DESC").
+		Limit(params.Limit).
+		Offset(params.Offset)
+
+	builder = applyPrefixedSearch(builder, params, "m")
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.Menu])
+}
+
 func (r *MenuRepositoryImpl) Create(ctx context.Context, entity entities.Menu) (*entities.Menu, error) {
 	values := map[string]any{
 		"app_id":                 entity.AppId,
@@ -112,6 +192,70 @@ func (r *MenuRepositoryImpl) Create(ctx context.Context, entity entities.Menu) (
 	}
 
 	return &created, nil
+}
+
+func (r *MenuRepositoryImpl) CreateBulk(ctx context.Context, items []entities.Menu) ([]entities.Menu, error) {
+	if len(items) == 0 {
+		return []entities.Menu{}, nil
+	}
+
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer func() {
+		_ = tx.Rollback(ctx)
+	}()
+
+	builder := r.sb.Insert(tableName).
+		Columns(
+			"app_id",
+			"module_id",
+			"parent_id",
+			"code",
+			"name",
+			"route_path",
+			"sort_order",
+			"required_permission_id",
+			"status",
+		).
+		Suffix("RETURNING " + columnList())
+
+	for _, entity := range items {
+		builder = builder.Values(
+			entity.AppId,
+			entity.ModuleId,
+			entity.ParentId,
+			entity.Code,
+			entity.Name,
+			entity.RoutePath,
+			entity.SortOrder,
+			entity.RequiredPermissionId,
+			entity.Status,
+		)
+	}
+
+	query, args, err := builder.ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	created, err := pgx.CollectRows(rows, pgx.RowToStructByName[entities.Menu])
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
+	return created, nil
 }
 
 func (r *MenuRepositoryImpl) Update(ctx context.Context, id int64, data map[string]any) (*entities.Menu, error) {
@@ -183,8 +327,37 @@ func columns() []string {
 	}
 }
 
+func prefixedColumns(prefix string) []string {
+	values := columns()
+	for index, column := range values {
+		values[index] = prefix + "." + column
+	}
+	return values
+}
+
 func columnList() string {
 	return "id, app_id, module_id, parent_id, code, name, route_path, sort_order, required_permission_id, status"
+}
+
+func applySearch(builder sq.SelectBuilder, params shared.ListParams) sq.SelectBuilder {
+	return applyPrefixedSearch(builder, params, "")
+}
+
+func applyPrefixedSearch(builder sq.SelectBuilder, params shared.ListParams, prefix string) sq.SelectBuilder {
+	if params.Search == "" {
+		return builder
+	}
+
+	columnPrefix := ""
+	if prefix != "" {
+		columnPrefix = prefix + "."
+	}
+	pattern := "%" + params.Search + "%"
+	return builder.Where(sq.Or{
+		sq.Expr("LOWER("+columnPrefix+"code) LIKE ?", pattern),
+		sq.Expr("LOWER("+columnPrefix+"name) LIKE ?", pattern),
+		sq.Expr("LOWER("+columnPrefix+"route_path) LIKE ?", pattern),
+	})
 }
 
 func canUpdateTimestamp() bool {
