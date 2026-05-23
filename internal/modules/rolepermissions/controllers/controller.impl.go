@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/rolepermissions/dto"
@@ -42,6 +43,118 @@ func (c *RolePermissionControllerImpl) Find(w http.ResponseWriter, r *http.Reque
 
 	end(nil, "count", len(items))
 	c.response.Success(w, r, http.StatusOK, "role_permissions.find.success", dto.ListResponse[entities.RolePermission]{Items: items})
+}
+
+func (c *RolePermissionControllerImpl) FindByApp(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByApp")
+
+	appIdentifier := strings.TrimSpace(r.PathValue("app"))
+	if appIdentifier == "" {
+		err := errors.New("empty app identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.RolePermissionService.FindByApp(r.Context(), appIdentifier, params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "role_permissions.find_by_app.success", dto.ListResponse[entities.RolePermissionDetail]{Items: items})
+}
+
+func (c *RolePermissionControllerImpl) FindByRole(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindByRole")
+
+	roleIdentifier := strings.TrimSpace(r.PathValue("role"))
+	if roleIdentifier == "" {
+		err := errors.New("empty role identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "role_permissions.invalid_role_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.RolePermissionService.FindByRole(r.Context(), roleIdentifier, params)
+	if errors.Is(err, repositories.ErrNotFound) {
+		end(err)
+		c.response.Error(w, r, http.StatusNotFound, "roles.not_found", nil)
+		return
+	}
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "role_permissions.find_by_role.success", dto.ListResponse[entities.RolePermissionDetail]{Items: items})
+}
+
+func (c *RolePermissionControllerImpl) FindRoleSummaries(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindRoleSummaries")
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.RolePermissionService.FindRoleSummaries(r.Context(), params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "role_permissions.find_role_summaries.success", dto.ListResponse[entities.RolePermissionSummary]{Items: items})
+}
+
+func (c *RolePermissionControllerImpl) FindRoleSummariesByApp(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindRoleSummariesByApp")
+
+	appIdentifier := strings.TrimSpace(r.PathValue("app"))
+	if appIdentifier == "" {
+		err := errors.New("empty app identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.RolePermissionService.FindRoleSummariesByApp(r.Context(), appIdentifier, params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "role_permissions.find_role_summaries_by_app.success", dto.ListResponse[entities.RolePermissionSummary]{Items: items})
+}
+
+func (c *RolePermissionControllerImpl) FindAvailablePermissionsByApp(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "FindAvailablePermissionsByApp")
+
+	appIdentifier := strings.TrimSpace(r.PathValue("app"))
+	if appIdentifier == "" {
+		err := errors.New("empty app identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "apps.empty_id", nil)
+		return
+	}
+
+	params := shared.NewListParamsFromRequest(r)
+	items, err := c.RolePermissionService.FindAvailablePermissionsByApp(r.Context(), appIdentifier, params)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusInternalServerError, "error.internal", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "role_permissions.find_available_permissions_by_app.success", dto.ListResponse[entities.AvailablePermissionModule]{Items: items})
 }
 
 func (c *RolePermissionControllerImpl) FindByID(w http.ResponseWriter, r *http.Request) {
@@ -91,6 +204,27 @@ func (c *RolePermissionControllerImpl) Create(w http.ResponseWriter, r *http.Req
 	c.response.Success(w, r, http.StatusCreated, "role_permissions.create.success", item)
 }
 
+func (c *RolePermissionControllerImpl) CreateBulk(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "CreateBulk")
+
+	var request []dto.CreateBulkRolePermissionRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "role_permissions.invalid_payload", nil)
+		return
+	}
+
+	items, err := c.RolePermissionService.CreateBulk(r.Context(), request)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "role_permissions.create_bulk.failed", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusCreated, "role_permissions.create_bulk.success", dto.ListResponse[entities.RolePermission]{Items: items})
+}
+
 func (c *RolePermissionControllerImpl) Update(w http.ResponseWriter, r *http.Request) {
 	end := c.log.Start(r.Context(), "Update")
 
@@ -122,6 +256,40 @@ func (c *RolePermissionControllerImpl) Update(w http.ResponseWriter, r *http.Req
 
 	end(nil)
 	c.response.Success(w, r, http.StatusOK, "role_permissions.update.success", item)
+}
+
+func (c *RolePermissionControllerImpl) UpdateByRole(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "UpdateByRole")
+
+	roleIdentifier := strings.TrimSpace(r.PathValue("role"))
+	if roleIdentifier == "" {
+		err := errors.New("empty role identifier")
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "role_permissions.invalid_role_id", nil)
+		return
+	}
+
+	var request dto.UpdateRolePermissionByRoleRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "role_permissions.invalid_payload", nil)
+		return
+	}
+
+	items, err := c.RolePermissionService.UpdateByRole(r.Context(), roleIdentifier, request)
+	if errors.Is(err, repositories.ErrNotFound) {
+		end(err)
+		c.response.Error(w, r, http.StatusNotFound, "roles.not_found", nil)
+		return
+	}
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "role_permissions.update_by_role.failed", nil)
+		return
+	}
+
+	end(nil, "count", len(items))
+	c.response.Success(w, r, http.StatusOK, "role_permissions.update_by_role.success", dto.ListResponse[entities.RolePermission]{Items: items})
 }
 
 func (c *RolePermissionControllerImpl) Delete(w http.ResponseWriter, r *http.Request) {

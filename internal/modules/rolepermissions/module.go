@@ -22,8 +22,15 @@ func (m *RolePermissionModuleImpl) Name() string {
 
 func (m *RolePermissionModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/role-permissions", m.RolePermissionController.Find)
+	mux.HandleFunc("GET /api/v1/role-permissions/by-app/{app}", m.RolePermissionController.FindByApp)
+	mux.HandleFunc("GET /api/v1/role-permissions/by-role/{role}", m.RolePermissionController.FindByRole)
+	mux.HandleFunc("GET /api/v1/role-permissions/available-permissions/by-app/{app}", m.RolePermissionController.FindAvailablePermissionsByApp)
+	mux.HandleFunc("GET /api/v1/role-permissions/roles", m.RolePermissionController.FindRoleSummaries)
+	mux.HandleFunc("GET /api/v1/role-permissions/roles/by-app/{app}", m.RolePermissionController.FindRoleSummariesByApp)
 	mux.HandleFunc("GET /api/v1/role-permissions/{id}", m.RolePermissionController.FindByID)
 	mux.HandleFunc("POST /api/v1/role-permissions", m.RolePermissionController.Create)
+	mux.HandleFunc("POST /api/v1/role-permissions/bulk", m.RolePermissionController.CreateBulk)
 	mux.HandleFunc("PUT /api/v1/role-permissions/{id}", m.RolePermissionController.Update)
+	mux.HandleFunc("PUT /api/v1/role-permissions/by-role/{role}", m.RolePermissionController.UpdateByRole)
 	mux.HandleFunc("DELETE /api/v1/role-permissions/{id}", m.RolePermissionController.Delete)
 }
