@@ -7,6 +7,7 @@ import (
 
 	sq "github.com/Masterminds/squirrel"
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/platform/database"
@@ -15,6 +16,9 @@ import (
 )
 
 const tableName = "users"
+const userCredentialsTableName = "user_credentials"
+const userIdentitiesTableName = "user_identities"
+const userVerificationCodesTableName = "user_verification_codes"
 
 var ErrNotFound = errors.New("user not found")
 
@@ -79,19 +83,11 @@ func (r *UserRepositoryImpl) FindByID(ctx context.Context, id int64) (*entities.
 	return &item, nil
 }
 
-func (r *UserRepositoryImpl) Create(ctx context.Context, entity entities.User) (*entities.User, error) {
-	values := map[string]any{
-		"organization_id": entity.OrganizationId,
-		"username":        entity.Username,
-		"email":           entity.Email,
-		"display_name":    entity.DisplayName,
-		"type":            entity.Type,
-		"status":          entity.Status,
-	}
-
-	query, args, err := r.sb.Insert(tableName).
-		SetMap(values).
-		Suffix("RETURNING " + columnList()).
+func (r *UserRepositoryImpl) FindByEmail(ctx context.Context, email string) (*entities.User, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Eq{"email": email}).
+		Limit(1).
 		ToSql()
 	if err != nil {
 		return nil, err
@@ -103,12 +99,114 @@ func (r *UserRepositoryImpl) Create(ctx context.Context, entity entities.User) (
 	}
 	defer rows.Close()
 
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.User])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *UserRepositoryImpl) FindByIdentity(ctx context.Context, provider string, providerUserID string) (*entities.User, error) {
+	userColumns := make([]string, 0, len(columns()))
+	for _, column := range columns() {
+		userColumns = append(userColumns, "u."+column)
+	}
+
+	query, args, err := r.sb.Select(userColumns...).
+		From(tableName + " u").
+		Join(userIdentitiesTableName + " ui ON ui.user_id = u.id").
+		Where(sq.Eq{"ui.provider": provider, "ui.provider_user_id": providerUserID}).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.User])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *UserRepositoryImpl) Create(ctx context.Context, input CreateUserInput) (*entities.User, error) {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	values := map[string]any{
+		"organization_id": input.User.OrganizationId,
+		"username":        input.User.Username,
+		"email":           input.User.Email,
+		"display_name":    input.User.DisplayName,
+		"type":            input.User.Type,
+		"status":          input.User.Status,
+	}
+
+	query, args, err := r.sb.Insert(tableName).
+		SetMap(values).
+		Suffix("RETURNING " + columnList()).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := tx.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
 	created, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.User])
 	if err != nil {
 		return nil, err
 	}
 
+	if input.PasswordHash != "" {
+		if err := r.createCredential(ctx, tx, created.ID, input.PasswordHash, input.MustChangePassword); err != nil {
+			return nil, err
+		}
+	}
+
+	if input.Identity != nil {
+		identity := *input.Identity
+		identity.UserId = created.ID
+		if err := r.createIdentity(ctx, tx, identity); err != nil {
+			return nil, err
+		}
+	}
+
+	if input.VerificationCode != nil {
+		if err := r.createVerificationCode(ctx, tx, created.ID, *input.VerificationCode); err != nil {
+			return nil, err
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+
 	return &created, nil
+}
+
+func (r *UserRepositoryImpl) LinkIdentity(ctx context.Context, identity entities.UserIdentity) error {
+	return r.createIdentity(ctx, r.db.Pool, identity)
 }
 
 func (r *UserRepositoryImpl) Update(ctx context.Context, id int64, data map[string]any) (*entities.User, error) {
@@ -165,6 +263,145 @@ func (r *UserRepositoryImpl) Delete(ctx context.Context, id int64) error {
 	return nil
 }
 
+func (r *UserRepositoryImpl) FindVerificationCode(ctx context.Context, purpose string, codeHash string) (*entities.UserVerificationCode, error) {
+	query, args, err := r.sb.Select(
+		"id",
+		"user_id",
+		"purpose",
+		"code_hash",
+		"expires_at",
+		"used_at",
+		"created_at",
+	).
+		From(userVerificationCodesTableName).
+		Where(sq.Eq{"purpose": purpose, "code_hash": codeHash}).
+		Where(sq.Eq{"used_at": nil}).
+		Where(sq.Gt{"expires_at": time.Now()}).
+		OrderBy("id DESC").
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.UserVerificationCode])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
+func (r *UserRepositoryImpl) UseVerificationCode(ctx context.Context, codeID int64) error {
+	query, args, err := r.sb.Update(userVerificationCodesTableName).
+		Set("used_at", time.Now()).
+		Where(sq.Eq{"id": codeID}).
+		Where(sq.Eq{"used_at": nil}).
+		Suffix("RETURNING id").
+		ToSql()
+	if err != nil {
+		return err
+	}
+
+	var updatedID int64
+	if err := r.db.Pool.QueryRow(ctx, query, args...).Scan(&updatedID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
+func (r *UserRepositoryImpl) MarkEmailVerified(ctx context.Context, userID int64) error {
+	query, args, err := r.sb.Update(tableName).
+		Set("email_verified_at", time.Now()).
+		Set("updated_at", time.Now()).
+		Where(sq.Eq{"id": userID}).
+		Suffix("RETURNING id").
+		ToSql()
+	if err != nil {
+		return err
+	}
+
+	var updatedID int64
+	if err := r.db.Pool.QueryRow(ctx, query, args...).Scan(&updatedID); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		return err
+	}
+
+	return nil
+}
+
+type txExecutor interface {
+	Exec(ctx context.Context, sql string, arguments ...any) (pgconn.CommandTag, error)
+}
+
+func (r *UserRepositoryImpl) createCredential(ctx context.Context, tx txExecutor, userID int64, passwordHash string, mustChangePassword bool) error {
+	values := map[string]any{
+		"user_id":              userID,
+		"password_hash":        passwordHash,
+		"must_change_password": mustChangePassword,
+		"password_changed_at":  time.Now(),
+	}
+
+	query, args, err := r.sb.Insert(userCredentialsTableName).SetMap(values).ToSql()
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, query, args...)
+	return err
+}
+
+func (r *UserRepositoryImpl) createIdentity(ctx context.Context, tx txExecutor, identity entities.UserIdentity) error {
+	values := map[string]any{
+		"user_id":          identity.UserId,
+		"provider":         identity.Provider,
+		"provider_user_id": identity.ProviderUserId,
+		"username":         identity.Username,
+		"email":            identity.Email,
+		"is_primary":       identity.IsPrimary,
+	}
+
+	query, args, err := r.sb.Insert(userIdentitiesTableName).SetMap(values).ToSql()
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, query, args...)
+	return err
+}
+
+func (r *UserRepositoryImpl) createVerificationCode(ctx context.Context, tx txExecutor, userID int64, input CreateVerificationCodeInput) error {
+	values := map[string]any{
+		"user_id":    userID,
+		"purpose":    input.Purpose,
+		"code_hash":  input.CodeHash,
+		"expires_at": input.ExpiresAt,
+	}
+
+	query, args, err := r.sb.Insert(userVerificationCodesTableName).SetMap(values).ToSql()
+	if err != nil {
+		return err
+	}
+
+	_, err = tx.Exec(ctx, query, args...)
+	return err
+}
+
 func columns() []string {
 	return []string{
 		"id",
@@ -174,13 +411,14 @@ func columns() []string {
 		"display_name",
 		"type",
 		"status",
+		"email_verified_at",
 		"created_at",
 		"updated_at",
 	}
 }
 
 func columnList() string {
-	return "id, organization_id, username, email, display_name, type, status, created_at, updated_at"
+	return "id, organization_id, username, email, display_name, type, status, email_verified_at, created_at, updated_at"
 }
 
 func canUpdateTimestamp() bool {

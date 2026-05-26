@@ -15,10 +15,13 @@ type Config struct {
 	Database DatabaseConfig
 	Redis    RedisConfig
 	CORS     CORSConfig
+	Mail     MailConfig
+	OAuth    OAuthConfig
 }
 
 type AppConfig struct {
-	Port string
+	Port      string
+	PublicURL string
 }
 
 type CORSConfig struct {
@@ -49,12 +52,36 @@ type RedisConfig struct {
 	DB       int
 }
 
+type MailConfig struct {
+	Host     string
+	Port     int
+	Username string
+	Password string
+	From     string
+	Enabled  bool
+}
+
+type OAuthConfig struct {
+	Google GoogleOAuthConfig
+}
+
+type GoogleOAuthConfig struct {
+	ClientID              string
+	ClientSecret          string
+	RedirectURL           string
+	Scopes                []string
+	DefaultOrganizationID int64
+	SuccessRedirectURL    string
+	FailureRedirectURL    string
+}
+
 func Load() Config {
 	_ = godotenv.Load()
 
 	return Config{
 		App: AppConfig{
-			Port: env("APP_PORT", "8080"),
+			Port:      env("APP_PORT", "8080"),
+			PublicURL: strings.TrimRight(env("APP_PUBLIC_URL", "http://localhost:8080"), "/"),
 		},
 		Logger: LoggerConfig{
 			Level:  env("LOG_LEVEL", "info"),
@@ -79,6 +106,25 @@ func Load() Config {
 			AllowedHeaders:   splitEnv("CORS_ALLOWED_HEADERS", []string{"Content-Type", "Authorization"}),
 			AllowCredentials: boolEnv("CORS_ALLOW_CREDENTIALS", true),
 			MaxAge:           intEnv("CORS_MAX_AGE", 86400),
+		},
+		Mail: MailConfig{
+			Host:     env("MAIL_HOST", ""),
+			Port:     intEnv("MAIL_PORT", 587),
+			Username: env("MAIL_USERNAME", ""),
+			Password: env("MAIL_PASSWORD", ""),
+			From:     env("MAIL_FROM", "noreply@localhost"),
+			Enabled:  boolEnv("MAIL_ENABLED", false),
+		},
+		OAuth: OAuthConfig{
+			Google: GoogleOAuthConfig{
+				ClientID:              env("GOOGLE_CLIENT_ID", ""),
+				ClientSecret:          env("GOOGLE_CLIENT_SECRET", ""),
+				RedirectURL:           env("GOOGLE_REDIRECT_URL", env("APP_PUBLIC_URL", "http://localhost:8080")+"/api/v1/auth/google/callback"),
+				Scopes:                splitEnv("GOOGLE_SCOPES", []string{"openid", "email", "profile"}),
+				DefaultOrganizationID: int64Env("GOOGLE_DEFAULT_ORGANIZATION_ID", 0),
+				SuccessRedirectURL:    env("GOOGLE_SUCCESS_REDIRECT_URL", ""),
+				FailureRedirectURL:    env("GOOGLE_FAILURE_REDIRECT_URL", ""),
+			},
 		},
 	}
 }
@@ -108,6 +154,20 @@ func intEnv(key string, fallback int) int {
 
 func int32Env(key string, fallback int32) int32 {
 	return int32(intEnv(key, int(fallback)))
+}
+
+func int64Env(key string, fallback int64) int64 {
+	value := os.Getenv(key)
+	if value == "" {
+		return fallback
+	}
+
+	parsed, err := strconv.ParseInt(value, 10, 64)
+	if err != nil {
+		return fallback
+	}
+
+	return parsed
 }
 
 func durationEnv(key string, fallback time.Duration) time.Duration {

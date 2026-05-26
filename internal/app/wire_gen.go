@@ -32,6 +32,9 @@ import (
 	controllers19 "github.com/open-suite/authorization/internal/modules/auditlogs/controllers"
 	repositories19 "github.com/open-suite/authorization/internal/modules/auditlogs/repositories"
 	services19 "github.com/open-suite/authorization/internal/modules/auditlogs/services"
+	"github.com/open-suite/authorization/internal/modules/auth"
+	controllers22 "github.com/open-suite/authorization/internal/modules/auth/controllers"
+	services22 "github.com/open-suite/authorization/internal/modules/auth/services"
 	"github.com/open-suite/authorization/internal/modules/health"
 	"github.com/open-suite/authorization/internal/modules/health/controllers"
 	"github.com/open-suite/authorization/internal/modules/health/repositories"
@@ -95,6 +98,7 @@ import (
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/i18n"
+	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/platform/redis"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
@@ -112,6 +116,7 @@ func Initialize(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 	sender := response.NewSender(translator, logger)
+	mailerMailer := mailer.New(configConfig, logger)
 	databaseDatabase, err := database.New(ctx, configConfig, logger)
 	if err != nil {
 		return nil, err
@@ -124,14 +129,14 @@ func Initialize(ctx context.Context) (*App, error) {
 	healthService := services.NewHealthService(healthRepository, logger)
 	healthController := controllers.NewHealthController(healthService, sender, logger)
 	healthModuleImpl := health.NewHealthModule(healthController)
+	userRepository := repositories3.NewUserRepository(databaseDatabase, logger)
+	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, logger)
+	authController := controllers22.NewAuthController(authService, sender, logger)
+	authModuleImpl := auth.NewAuthModule(authController)
 	organizationRepository := repositories2.NewOrganizationRepository(databaseDatabase, logger)
 	organizationService := services2.NewOrganizationService(organizationRepository, logger)
 	organizationController := controllers2.NewOrganizationController(organizationService, sender, logger)
 	organizationModuleImpl := organizations.NewOrganizationModule(organizationController)
-	userRepository := repositories3.NewUserRepository(databaseDatabase, logger)
-	userService := services3.NewUserService(userRepository, logger)
-	userController := controllers3.NewUserController(userService, sender, logger)
-	userModuleImpl := users.NewUserModule(userController)
 	userIdentityRepository := repositories4.NewUserIdentityRepository(databaseDatabase, logger)
 	userIdentityService := services4.NewUserIdentityService(userIdentityRepository, logger)
 	userIdentityController := controllers4.NewUserIdentityController(userIdentityService, sender, logger)
@@ -180,6 +185,9 @@ func Initialize(ctx context.Context) (*App, error) {
 	teamMemberService := services15.NewTeamMemberService(teamMemberRepository, logger)
 	teamMemberController := controllers15.NewTeamMemberController(teamMemberService, sender, logger)
 	teamMemberModuleImpl := teammembers.NewTeamMemberModule(teamMemberController)
+	userService := services3.NewUserService(userRepository, userRoleService, teamMemberService, configConfig, mailerMailer, logger)
+	userController := controllers3.NewUserController(userService, sender, logger)
+	userModuleImpl := users.NewUserModule(userController)
 	teamRoleRepository := repositories16.NewTeamRoleRepository(databaseDatabase, logger)
 	teamRoleService := services16.NewTeamRoleService(teamRoleRepository, logger)
 	teamRoleController := controllers16.NewTeamRoleController(teamRoleService, sender, logger)
@@ -204,7 +212,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	releaseNoteService := services21.NewReleaseNoteService(releaseNoteRepository, logger)
 	releaseNoteController := controllers21.NewReleaseNoteController(releaseNoteService, sender, logger)
 	releaseNoteModuleImpl := releasenotes.NewReleaseNoteModule(releaseNoteController)
-	v := ProvideModules(healthModuleImpl, organizationModuleImpl, userModuleImpl, userIdentityModuleImpl, appModuleImpl, appClientModuleImpl, moduleModuleImpl, actionModuleImpl, permissionModuleImpl, menuModuleImpl, roleModuleImpl, rolePermissionModuleImpl, userRoleModuleImpl, teamModuleImpl, teamMemberModuleImpl, teamRoleModuleImpl, userPermissionOverrideModuleImpl, accessCacheVersionModuleImpl, auditLogModuleImpl, appPermissionManifestModuleImpl, releaseNoteModuleImpl)
+	v := ProvideModules(healthModuleImpl, authModuleImpl, organizationModuleImpl, userModuleImpl, userIdentityModuleImpl, appModuleImpl, appClientModuleImpl, moduleModuleImpl, actionModuleImpl, permissionModuleImpl, menuModuleImpl, roleModuleImpl, rolePermissionModuleImpl, userRoleModuleImpl, teamModuleImpl, teamMemberModuleImpl, teamRoleModuleImpl, userPermissionOverrideModuleImpl, accessCacheVersionModuleImpl, auditLogModuleImpl, appPermissionManifestModuleImpl, releaseNoteModuleImpl)
 	app := New(configConfig, logger, sender, databaseDatabase, redisRedis, v)
 	return app, nil
 }

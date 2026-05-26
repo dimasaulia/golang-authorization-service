@@ -47,6 +47,27 @@ func (s *TeamMemberServiceImpl) Create(ctx context.Context, request dto.CreateTe
 	return item, err
 }
 
+func (s *TeamMemberServiceImpl) AssignTeamsToUser(ctx context.Context, userID int64, teamIDs []int64) ([]entities.TeamMember, error) {
+	end := s.log.Start(ctx, "AssignTeamsToUser", "user_id", userID, "count", len(teamIDs))
+	items := make([]entities.TeamMember, 0, len(teamIDs))
+	for _, teamID := range teamIDs {
+		if teamID == 0 {
+			continue
+		}
+		item, err := s.TeamMemberRepository.Create(ctx, entities.TeamMember{
+			TeamId: teamID,
+			UserId: userID,
+		})
+		if err != nil {
+			end(err)
+			return nil, err
+		}
+		items = append(items, *item)
+	}
+	end(nil, "assigned", len(items))
+	return items, nil
+}
+
 func (s *TeamMemberServiceImpl) Update(ctx context.Context, id int64, request dto.UpdateTeamMemberRequest) (*entities.TeamMember, error) {
 	end := s.log.Start(ctx, "Update", "id", id)
 

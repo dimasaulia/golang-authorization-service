@@ -2,23 +2,57 @@ package services
 
 import (
 	"context"
+	"crypto/rand"
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"strings"
+	"time"
 
 	"github.com/open-suite/authorization/internal/entities"
+	teamMemberServices "github.com/open-suite/authorization/internal/modules/teammembers/services"
+	userRoleServices "github.com/open-suite/authorization/internal/modules/userroles/services"
 	"github.com/open-suite/authorization/internal/modules/users/dto"
 	"github.com/open-suite/authorization/internal/modules/users/repositories"
+	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/shared"
+	"golang.org/x/crypto/bcrypt"
 )
 
+const (
+	userTypeInternal = "internal"
+	userTypeExternal = "external"
+	userTypeService  = "service"
+
+	userStatusInvited = "invited"
+	userStatusActive  = "active"
+
+	purposeEmailVerification = "email_verification"
+	purposePasswordSetup     = "password_setup"
+)
+
+var ErrInvalidRequest = errors.New("invalid user request")
+
 type UserServiceImpl struct {
-	UserRepository repositories.UserRepository
-	log            *logger.LayerLogger
+	UserRepository    repositories.UserRepository
+	UserRoleService   userRoleServices.UserRoleService
+	TeamMemberService teamMemberServices.TeamMemberService
+	cfg               config.Config
+	mailer            mailer.Mailer
+	log               *logger.LayerLogger
 }
 
-func NewUserService(repository repositories.UserRepository, appLogger *logger.Logger) UserService {
+func NewUserService(repository repositories.UserRepository, userRoleService userRoleServices.UserRoleService, teamMemberService teamMemberServices.TeamMemberService, cfg config.Config, mailer mailer.Mailer, appLogger *logger.Logger) UserService {
 	return &UserServiceImpl{
-		UserRepository: repository,
-		log:            appLogger.Layer("service.users"),
+		UserRepository:    repository,
+		UserRoleService:   userRoleService,
+		TeamMemberService: teamMemberService,
+		cfg:               cfg,
+		mailer:            mailer,
+		log:               appLogger.Layer("service.users"),
 	}
 }
 
@@ -36,18 +70,188 @@ func (s *UserServiceImpl) FindByID(ctx context.Context, id int64) (*entities.Use
 	return item, err
 }
 
-func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequest) (*entities.User, error) {
+func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequest) (*dto.UserResponse, error) {
 	end := s.log.Start(ctx, "Create")
-	item, err := s.UserRepository.Create(ctx, entities.User{
-		OrganizationId: request.OrganizationId,
-		Username:       request.Username,
-		Email:          request.Email,
-		DisplayName:    request.DisplayName,
-		Type:           request.Type,
-		Status:         request.Status,
+	request = normalizeCreateRequest(request)
+	if err := validateCreateRequest(request); err != nil {
+		end(err)
+		return nil, err
+	}
+
+	var passwordHash string
+	if strings.TrimSpace(request.Password) != "" {
+		hash, err := hashPassword(request.Password)
+		if err != nil {
+			end(err)
+			return nil, err
+		}
+		passwordHash = hash
+	}
+
+	var token string
+	input := repositories.CreateUserInput{
+		User: entities.User{
+			OrganizationId: request.OrganizationId,
+			Username:       request.Username,
+			Email:          request.Email,
+			DisplayName:    request.DisplayName,
+			Type:           request.Type,
+			Status:         request.Status,
+		},
+		PasswordHash:       passwordHash,
+		MustChangePassword: valueOrDefault(request.MustChangePassword, strings.TrimSpace(request.Password) != ""),
+	}
+
+	if request.SendInvitation || request.Status == userStatusInvited {
+		token = newToken()
+		input.User.Status = userStatusInvited
+		input.VerificationCode = &repositories.CreateVerificationCodeInput{
+			Purpose:   purposePasswordSetup,
+			CodeHash:  hashCode(token),
+			ExpiresAt: time.Now().Add(72 * time.Hour),
+		}
+	}
+
+	item, err := s.UserRepository.Create(ctx, input)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	if len(request.RoleIds) > 0 {
+		organizationID := request.OrganizationId
+		if _, err := s.UserRoleService.AssignRolesToUser(ctx, item.ID, request.RoleIds, &organizationID, nil); err != nil {
+			s.deleteCreatedUser(ctx, item.ID)
+			end(err)
+			return nil, err
+		}
+	}
+	if len(request.TeamIds) > 0 {
+		if _, err := s.TeamMemberService.AssignTeamsToUser(ctx, item.ID, request.TeamIds); err != nil {
+			s.deleteCreatedUser(ctx, item.ID)
+			end(err)
+			return nil, err
+		}
+	}
+
+	if token != "" {
+		if err := s.sendPasswordSetupEmail(ctx, item.Email, token); err != nil {
+			s.log.Warn(ctx, "send_password_setup_email.failed", "user_id", item.ID, "error", err.Error())
+		}
+	}
+
+	end(nil)
+	return toUserResponse(item, input.MustChangePassword, request.CreateInKeycloak, request.CreateInFreeIPA, request.RoleIds, request.TeamIds), nil
+}
+
+func (s *UserServiceImpl) Signup(ctx context.Context, request dto.SignupUserRequest) (*dto.UserResponse, error) {
+	end := s.log.Start(ctx, "Signup")
+	request.Username = strings.TrimSpace(request.Username)
+	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
+	request.DisplayName = strings.TrimSpace(request.DisplayName)
+	if request.OrganizationId == 0 || request.Username == "" || request.Email == "" || request.DisplayName == "" || strings.TrimSpace(request.Password) == "" {
+		end(ErrInvalidRequest)
+		return nil, ErrInvalidRequest
+	}
+
+	passwordHash, err := hashPassword(request.Password)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	token := newToken()
+	item, err := s.UserRepository.Create(ctx, repositories.CreateUserInput{
+		User: entities.User{
+			OrganizationId: request.OrganizationId,
+			Username:       request.Username,
+			Email:          request.Email,
+			DisplayName:    request.DisplayName,
+			Type:           userTypeExternal,
+			Status:         userStatusActive,
+		},
+		PasswordHash:       passwordHash,
+		MustChangePassword: false,
+		VerificationCode: &repositories.CreateVerificationCodeInput{
+			Purpose:   purposeEmailVerification,
+			CodeHash:  hashCode(token),
+			ExpiresAt: time.Now().Add(24 * time.Hour),
+		},
 	})
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	if err := s.sendEmailVerification(ctx, item.Email, token); err != nil {
+		s.log.Warn(ctx, "send_email_verification.failed", "user_id", item.ID, "error", err.Error())
+	}
+
+	end(nil)
+	return toUserResponse(item, false, false, false, nil, nil), nil
+}
+
+func (s *UserServiceImpl) SignupWithGoogle(ctx context.Context, request dto.GoogleSignupRequest) (*dto.UserResponse, error) {
+	end := s.log.Start(ctx, "SignupWithGoogle")
+	request.Username = strings.TrimSpace(request.Username)
+	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
+	request.DisplayName = strings.TrimSpace(request.DisplayName)
+	request.ProviderUserId = strings.TrimSpace(request.ProviderUserId)
+	if request.OrganizationId == 0 || request.ProviderUserId == "" || request.Username == "" || request.Email == "" || request.DisplayName == "" {
+		end(ErrInvalidRequest)
+		return nil, ErrInvalidRequest
+	}
+
+	username := request.Username
+	email := request.Email
+	item, err := s.UserRepository.Create(ctx, repositories.CreateUserInput{
+		User: entities.User{
+			OrganizationId: request.OrganizationId,
+			Username:       request.Username,
+			Email:          request.Email,
+			DisplayName:    request.DisplayName,
+			Type:           userTypeExternal,
+			Status:         userStatusActive,
+		},
+		Identity: &entities.UserIdentity{
+			Provider:       "google",
+			ProviderUserId: request.ProviderUserId,
+			Username:       &username,
+			Email:          &email,
+			IsPrimary:      true,
+		},
+	})
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	end(nil)
+	return toUserResponse(item, false, false, false, nil, nil), nil
+}
+
+func (s *UserServiceImpl) VerifyEmail(ctx context.Context, request dto.VerifyEmailRequest) error {
+	end := s.log.Start(ctx, "VerifyEmail")
+	code := strings.TrimSpace(request.Code)
+	if code == "" {
+		end(ErrInvalidRequest)
+		return ErrInvalidRequest
+	}
+
+	item, err := s.UserRepository.FindVerificationCode(ctx, purposeEmailVerification, hashCode(code))
+	if err != nil {
+		end(err)
+		return err
+	}
+
+	if err := s.UserRepository.MarkEmailVerified(ctx, item.UserID); err != nil {
+		end(err)
+		return err
+	}
+
+	err = s.UserRepository.UseVerificationCode(ctx, item.ID)
 	end(err)
-	return item, err
+	return err
 }
 
 func (s *UserServiceImpl) Update(ctx context.Context, id int64, request dto.UpdateUserRequest) (*entities.User, error) {
@@ -83,4 +287,107 @@ func (s *UserServiceImpl) Delete(ctx context.Context, id int64) error {
 	err := s.UserRepository.Delete(ctx, id)
 	end(err)
 	return err
+}
+
+func normalizeCreateRequest(request dto.CreateUserRequest) dto.CreateUserRequest {
+	request.Username = strings.TrimSpace(request.Username)
+	request.Email = strings.ToLower(strings.TrimSpace(request.Email))
+	request.DisplayName = strings.TrimSpace(request.DisplayName)
+	request.Type = strings.TrimSpace(request.Type)
+	request.Status = strings.TrimSpace(request.Status)
+	if request.Type == "" {
+		request.Type = userTypeInternal
+	}
+	if request.Status == "" {
+		request.Status = userStatusActive
+	}
+	return request
+}
+
+func validateCreateRequest(request dto.CreateUserRequest) error {
+	if request.OrganizationId == 0 || request.Username == "" || request.Email == "" || request.DisplayName == "" {
+		return ErrInvalidRequest
+	}
+	if !isAllowed(request.Type, userTypeInternal, userTypeExternal, userTypeService) {
+		return ErrInvalidRequest
+	}
+	if !isAllowed(request.Status, userStatusInvited, userStatusActive, "suspended", "disabled") {
+		return ErrInvalidRequest
+	}
+	if request.Status == userStatusInvited && strings.TrimSpace(request.Password) != "" {
+		return ErrInvalidRequest
+	}
+	return nil
+}
+
+func isAllowed(value string, allowed ...string) bool {
+	for _, item := range allowed {
+		if value == item {
+			return true
+		}
+	}
+	return false
+}
+
+func hashPassword(password string) (string, error) {
+	hashed, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+	if err != nil {
+		return "", err
+	}
+	return string(hashed), nil
+}
+
+func newToken() string {
+	bytes := make([]byte, 32)
+	if _, err := rand.Read(bytes); err != nil {
+		return fmt.Sprintf("%d", time.Now().UnixNano())
+	}
+	return hex.EncodeToString(bytes)
+}
+
+func hashCode(code string) string {
+	sum := sha256.Sum256([]byte(code))
+	return hex.EncodeToString(sum[:])
+}
+
+func valueOrDefault(value *bool, fallback bool) bool {
+	if value == nil {
+		return fallback
+	}
+	return *value
+}
+
+func (s *UserServiceImpl) sendEmailVerification(ctx context.Context, email string, token string) error {
+	link := fmt.Sprintf("%s/api/v1/users/verify-email?code=%s", s.cfg.App.PublicURL, token)
+	return s.mailer.Send(ctx, email, "Verify your email", "Please verify your email using this link:\n\n"+link)
+}
+
+func (s *UserServiceImpl) sendPasswordSetupEmail(ctx context.Context, email string, token string) error {
+	link := fmt.Sprintf("%s/password/setup?code=%s", s.cfg.App.PublicURL, token)
+	return s.mailer.Send(ctx, email, "Set up your password", "Please set your password using this link:\n\n"+link)
+}
+
+func (s *UserServiceImpl) deleteCreatedUser(ctx context.Context, userID int64) {
+	if err := s.UserRepository.Delete(ctx, userID); err != nil {
+		s.log.Warn(ctx, "create.rollback_failed", "user_id", userID, "error", err.Error())
+	}
+}
+
+func toUserResponse(user *entities.User, mustChangePassword bool, createInKeycloak bool, createInFreeIPA bool, roleIDs []int64, teamIDs []int64) *dto.UserResponse {
+	return &dto.UserResponse{
+		ID:                 user.ID,
+		OrganizationId:     user.OrganizationId,
+		Username:           user.Username,
+		Email:              user.Email,
+		DisplayName:        user.DisplayName,
+		Type:               user.Type,
+		Status:             user.Status,
+		MustChangePassword: mustChangePassword,
+		Provisioning: dto.UserProvisioningRequest{
+			Keycloak: createInKeycloak,
+			FreeIPA:  createInFreeIPA,
+		},
+		RoleIds: roleIDs,
+		TeamIds: teamIDs,
+	}
 }

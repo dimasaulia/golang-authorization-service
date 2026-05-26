@@ -22,6 +22,10 @@ func (m *UserModuleImpl) Name() string {
 
 func (m *UserModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/users", m.UserController.Find)
+	mux.HandleFunc("POST /api/v1/users/signup", m.UserController.Signup)
+	mux.HandleFunc("POST /api/v1/users/signup/google", m.UserController.SignupWithGoogle)
+	mux.HandleFunc("GET /api/v1/users/verify-email", m.UserController.VerifyEmail)
+	mux.HandleFunc("POST /api/v1/users/verify-email", m.UserController.VerifyEmail)
 	mux.HandleFunc("GET /api/v1/users/{id}", m.UserController.FindByID)
 	mux.HandleFunc("POST /api/v1/users", m.UserController.Create)
 	mux.HandleFunc("PUT /api/v1/users/{id}", m.UserController.Update)

@@ -50,6 +50,29 @@ func (s *UserRoleServiceImpl) Create(ctx context.Context, request dto.CreateUser
 	return item, err
 }
 
+func (s *UserRoleServiceImpl) AssignRolesToUser(ctx context.Context, userID int64, roleIDs []int64, organizationID *int64, assignedBy *int64) ([]entities.UserRole, error) {
+	end := s.log.Start(ctx, "AssignRolesToUser", "user_id", userID, "count", len(roleIDs))
+	items := make([]entities.UserRole, 0, len(roleIDs))
+	for _, roleID := range roleIDs {
+		if roleID == 0 {
+			continue
+		}
+		item, err := s.UserRoleRepository.Create(ctx, entities.UserRole{
+			UserId:         userID,
+			RoleId:         roleID,
+			OrganizationId: organizationID,
+			AssignedBy:     assignedBy,
+		})
+		if err != nil {
+			end(err)
+			return nil, err
+		}
+		items = append(items, *item)
+	}
+	end(nil, "assigned", len(items))
+	return items, nil
+}
+
 func (s *UserRoleServiceImpl) Update(ctx context.Context, id int64, request dto.UpdateUserRoleRequest) (*entities.UserRole, error) {
 	end := s.log.Start(ctx, "Update", "id", id)
 

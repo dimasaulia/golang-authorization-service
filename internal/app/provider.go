@@ -7,6 +7,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/apppermissionmanifests"
 	"github.com/open-suite/authorization/internal/modules/apps"
 	"github.com/open-suite/authorization/internal/modules/auditlogs"
+	"github.com/open-suite/authorization/internal/modules/auth"
 	"github.com/open-suite/authorization/internal/modules/health"
 	"github.com/open-suite/authorization/internal/modules/menus"
 	"github.com/open-suite/authorization/internal/modules/modules"
@@ -47,6 +48,7 @@ var _ Module = (*accesscacheversions.AccessCacheVersionModuleImpl)(nil)
 var _ Module = (*auditlogs.AuditLogModuleImpl)(nil)
 var _ Module = (*apppermissionmanifests.AppPermissionManifestModuleImpl)(nil)
 var _ Module = (*releasenotes.ReleaseNoteModuleImpl)(nil)
+var _ Module = (*auth.AuthModuleImpl)(nil)
 
 func ProvideLogger(cfg config.Config) (*logger.Logger, error) {
 	return logger.New(logger.Config{
@@ -55,6 +57,6 @@ func ProvideLogger(cfg config.Config) (*logger.Logger, error) {
 	})
 }
 
-func ProvideModules(healthModule *health.HealthModuleImpl, organizationModule *organizations.OrganizationModuleImpl, userModule *users.UserModuleImpl, userIdentityModule *useridentities.UserIdentityModuleImpl, appModule *apps.AppModuleImpl, appClientModule *appclients.AppClientModuleImpl, moduleModule *modules.ModuleModuleImpl, actionModule *actions.ActionModuleImpl, permissionModule *permissions.PermissionModuleImpl, menuModule *menus.MenuModuleImpl, roleModule *roles.RoleModuleImpl, rolePermissionModule *rolepermissions.RolePermissionModuleImpl, userRoleModule *userroles.UserRoleModuleImpl, teamModule *teams.TeamModuleImpl, teamMemberModule *teammembers.TeamMemberModuleImpl, teamRoleModule *teamroles.TeamRoleModuleImpl, userPermissionOverrideModule *userpermissionoverrides.UserPermissionOverrideModuleImpl, accessCacheVersionModule *accesscacheversions.AccessCacheVersionModuleImpl, auditLogModule *auditlogs.AuditLogModuleImpl, appPermissionManifestModule *apppermissionmanifests.AppPermissionManifestModuleImpl, releaseNoteModule *releasenotes.ReleaseNoteModuleImpl) []Module {
-	return []Module{healthModule, organizationModule, userModule, userIdentityModule, appModule, appClientModule, moduleModule, actionModule, permissionModule, menuModule, roleModule, rolePermissionModule, userRoleModule, teamModule, teamMemberModule, teamRoleModule, userPermissionOverrideModule, accessCacheVersionModule, auditLogModule, appPermissionManifestModule, releaseNoteModule}
+func ProvideModules(healthModule *health.HealthModuleImpl, authModule *auth.AuthModuleImpl, organizationModule *organizations.OrganizationModuleImpl, userModule *users.UserModuleImpl, userIdentityModule *useridentities.UserIdentityModuleImpl, appModule *apps.AppModuleImpl, appClientModule *appclients.AppClientModuleImpl, moduleModule *modules.ModuleModuleImpl, actionModule *actions.ActionModuleImpl, permissionModule *permissions.PermissionModuleImpl, menuModule *menus.MenuModuleImpl, roleModule *roles.RoleModuleImpl, rolePermissionModule *rolepermissions.RolePermissionModuleImpl, userRoleModule *userroles.UserRoleModuleImpl, teamModule *teams.TeamModuleImpl, teamMemberModule *teammembers.TeamMemberModuleImpl, teamRoleModule *teamroles.TeamRoleModuleImpl, userPermissionOverrideModule *userpermissionoverrides.UserPermissionOverrideModuleImpl, accessCacheVersionModule *accesscacheversions.AccessCacheVersionModuleImpl, auditLogModule *auditlogs.AuditLogModuleImpl, appPermissionManifestModule *apppermissionmanifests.AppPermissionManifestModuleImpl, releaseNoteModule *releasenotes.ReleaseNoteModuleImpl) []Module {
+	return []Module{healthModule, authModule, organizationModule, userModule, userIdentityModule, appModule, appClientModule, moduleModule, actionModule, permissionModule, menuModule, roleModule, rolePermissionModule, userRoleModule, teamModule, teamMemberModule, teamRoleModule, userPermissionOverrideModule, accessCacheVersionModule, auditLogModule, appPermissionManifestModule, releaseNoteModule}
 }

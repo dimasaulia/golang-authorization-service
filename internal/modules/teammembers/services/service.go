@@ -12,6 +12,7 @@ type TeamMemberService interface {
 	Find(ctx context.Context, params shared.ListParams) ([]entities.TeamMember, error)
 	FindByID(ctx context.Context, id int64) (*entities.TeamMember, error)
 	Create(ctx context.Context, request dto.CreateTeamMemberRequest) (*entities.TeamMember, error)
+	AssignTeamsToUser(ctx context.Context, userID int64, teamIDs []int64) ([]entities.TeamMember, error)
 	Update(ctx context.Context, id int64, request dto.UpdateTeamMemberRequest) (*entities.TeamMember, error)
 	Delete(ctx context.Context, id int64) error
 }

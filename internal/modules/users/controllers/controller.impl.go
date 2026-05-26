@@ -91,6 +91,70 @@ func (c *UserControllerImpl) Create(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusCreated, "users.create.success", item)
 }
 
+func (c *UserControllerImpl) Signup(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "Signup")
+
+	var request dto.SignupUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.invalid_payload", nil)
+		return
+	}
+
+	item, err := c.UserService.Signup(r.Context(), request)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.signup.failed", nil)
+		return
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusCreated, "users.signup.success", item)
+}
+
+func (c *UserControllerImpl) SignupWithGoogle(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "SignupWithGoogle")
+
+	var request dto.GoogleSignupRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.invalid_payload", nil)
+		return
+	}
+
+	item, err := c.UserService.SignupWithGoogle(r.Context(), request)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.signup_google.failed", nil)
+		return
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusCreated, "users.signup_google.success", item)
+}
+
+func (c *UserControllerImpl) VerifyEmail(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "VerifyEmail")
+
+	request := dto.VerifyEmailRequest{Code: r.URL.Query().Get("code")}
+	if request.Code == "" {
+		if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+			end(err)
+			c.response.Error(w, r, http.StatusBadRequest, "users.invalid_payload", nil)
+			return
+		}
+	}
+
+	if err := c.UserService.VerifyEmail(r.Context(), request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.verify_email.failed", nil)
+		return
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "users.verify_email.success", nil)
+}
+
 func (c *UserControllerImpl) Update(w http.ResponseWriter, r *http.Request) {
 	end := c.log.Start(r.Context(), "Update")
 

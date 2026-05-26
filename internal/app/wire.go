@@ -31,6 +31,9 @@ import (
 	auditlogsControllers "github.com/open-suite/authorization/internal/modules/auditlogs/controllers"
 	auditlogsRepositories "github.com/open-suite/authorization/internal/modules/auditlogs/repositories"
 	auditlogsServices "github.com/open-suite/authorization/internal/modules/auditlogs/services"
+	"github.com/open-suite/authorization/internal/modules/auth"
+	authControllers "github.com/open-suite/authorization/internal/modules/auth/controllers"
+	authServices "github.com/open-suite/authorization/internal/modules/auth/services"
 	"github.com/open-suite/authorization/internal/modules/health"
 	"github.com/open-suite/authorization/internal/modules/health/controllers"
 	"github.com/open-suite/authorization/internal/modules/health/repositories"
@@ -94,6 +97,7 @@ import (
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/database"
 	"github.com/open-suite/authorization/internal/platform/i18n"
+	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/platform/redis"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
@@ -105,11 +109,15 @@ func Initialize(ctx context.Context) (*App, error) {
 		database.New,
 		redis.New,
 		i18n.NewTranslator,
+		mailer.New,
 		response.NewSender,
 		repositories.NewHealthRepository,
 		services.NewHealthService,
 		controllers.NewHealthController,
 		health.NewHealthModule,
+		authServices.NewAuthService,
+		authControllers.NewAuthController,
+		auth.NewAuthModule,
 		organizationsRepositories.NewOrganizationRepository,
 		organizationsServices.NewOrganizationService,
 		organizationsControllers.NewOrganizationController,
