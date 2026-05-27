@@ -4,15 +4,22 @@ import (
 	"net/http"
 
 	"github.com/open-suite/authorization/internal/modules/roles/controllers"
+	"github.com/open-suite/authorization/internal/platform/config"
+	"github.com/open-suite/authorization/internal/shared/middleware"
+	sharedpermissions "github.com/open-suite/authorization/internal/shared/permissions"
 )
 
 type RoleModuleImpl struct {
 	RoleController controllers.RoleController
+	auth           *middleware.Authenticator
+	appCode        string
 }
 
-func NewRoleModule(controller controllers.RoleController) *RoleModuleImpl {
+func NewRoleModule(controller controllers.RoleController, cfg config.Config, auth *middleware.Authenticator) *RoleModuleImpl {
 	return &RoleModuleImpl{
 		RoleController: controller,
+		auth:           auth,
+		appCode:        cfg.Authz.AppCode,
 	}
 }
 
@@ -21,10 +28,14 @@ func (m *RoleModuleImpl) Name() string {
 }
 
 func (m *RoleModuleImpl) RegisterRoutes(mux *http.ServeMux) {
-	mux.HandleFunc("GET /api/v1/roles", m.RoleController.Find)
-	mux.HandleFunc("GET /api/v1/roles/by-app/{app}", m.RoleController.FindByApp)
-	mux.HandleFunc("GET /api/v1/roles/{id}", m.RoleController.FindByUnique)
-	mux.HandleFunc("POST /api/v1/roles", m.RoleController.Create)
-	mux.HandleFunc("PUT /api/v1/roles/{id}", m.RoleController.Update)
-	mux.HandleFunc("DELETE /api/v1/roles/{id}", m.RoleController.Delete)
+	mux.Handle("GET /api/v1/roles", m.protect(sharedpermissions.AuthorizationCenterRolesRead, m.RoleController.Find))
+	mux.Handle("GET /api/v1/roles/by-app/{app}", m.protect(sharedpermissions.AuthorizationCenterRolesRead, m.RoleController.FindByApp))
+	mux.Handle("GET /api/v1/roles/{id}", m.protect(sharedpermissions.AuthorizationCenterRolesRead, m.RoleController.FindByUnique))
+	mux.Handle("POST /api/v1/roles", m.protect(sharedpermissions.AuthorizationCenterRolesWrite, m.RoleController.Create))
+	mux.Handle("PUT /api/v1/roles/{id}", m.protect(sharedpermissions.AuthorizationCenterRolesUpdate, m.RoleController.Update))
+	mux.Handle("DELETE /api/v1/roles/{id}", m.protect(sharedpermissions.AuthorizationCenterRolesDelete, m.RoleController.Delete))
+}
+
+func (m *RoleModuleImpl) protect(permission string, handler http.HandlerFunc) http.Handler {
+	return m.auth.RequirePermission(m.appCode, permission)(handler)
 }
