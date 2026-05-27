@@ -19,6 +19,7 @@ type Config struct {
 	OAuth    OAuthConfig
 	Keycloak KeycloakConfig
 	FreeIPA  FreeIPAConfig
+	Authz    AuthzConfig
 }
 
 type AppConfig struct {
@@ -93,6 +94,12 @@ type FreeIPAConfig struct {
 	InsecureSkipVerify bool
 }
 
+type AuthzConfig struct {
+	CacheTTL    time.Duration
+	TokenSecret string
+	TokenTTL    time.Duration
+}
+
 func Load() Config {
 	_ = godotenv.Load()
 
@@ -157,6 +164,11 @@ func Load() Config {
 			Username:           env("FREEIPA_USERNAME", ""),
 			Password:           env("FREEIPA_PASSWORD", ""),
 			InsecureSkipVerify: boolEnv("FREEIPA_INSECURE_SKIP_VERIFY", false),
+		},
+		Authz: AuthzConfig{
+			CacheTTL:    durationEnv("AUTHZ_CACHE_TTL", 5*time.Minute),
+			TokenSecret: env("AUTHZ_TOKEN_SECRET", "change-me"),
+			TokenTTL:    durationEnv("AUTHZ_TOKEN_TTL", 15*time.Minute),
 		},
 	}
 }

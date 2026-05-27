@@ -15,3 +15,36 @@ type GoogleUserInfo struct {
 	Name          string `json:"name"`
 	Picture       string `json:"picture,omitempty"`
 }
+
+type AccessSummaryResponse struct {
+	App         string           `json:"app"`
+	Menus       []AccessibleMenu `json:"menus"`
+	Permissions []string         `json:"permissions"`
+}
+
+type AccessibleMenu struct {
+	Code               string  `json:"code"`
+	Path               string  `json:"path"`
+	RequiredPermission *string `json:"required_permission"`
+}
+
+type UserAppAccessResponse struct {
+	Items []UserAppAccess `json:"items"`
+}
+
+type UserAppAccess struct {
+	Code string `json:"code"`
+	Name string `json:"name"`
+}
+
+type AccessCheckResponse struct {
+	Allowed    bool   `json:"allowed"`
+	App        string `json:"app"`
+	Permission string `json:"permission"`
+}
+
+type AccessTokenResponse struct {
+	Token     string `json:"token"`
+	ExpiresIn int64  `json:"expires_in"`
+	TokenType string `json:"token_type"`
+}

@@ -34,6 +34,7 @@ import (
 	services19 "github.com/open-suite/authorization/internal/modules/auditlogs/services"
 	"github.com/open-suite/authorization/internal/modules/auth"
 	controllers22 "github.com/open-suite/authorization/internal/modules/auth/controllers"
+	repositories22 "github.com/open-suite/authorization/internal/modules/auth/repositories"
 	services22 "github.com/open-suite/authorization/internal/modules/auth/services"
 	"github.com/open-suite/authorization/internal/modules/health"
 	"github.com/open-suite/authorization/internal/modules/health/controllers"
@@ -134,7 +135,8 @@ func Initialize(ctx context.Context) (*App, error) {
 	healthController := controllers.NewHealthController(healthService, sender, logger)
 	healthModuleImpl := health.NewHealthModule(healthController)
 	userRepository := repositories3.NewUserRepository(databaseDatabase, logger)
-	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, freeIPAClient, logger)
+	accessRepository := repositories22.NewAccessRepository(databaseDatabase, logger)
+	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, accessRepository, freeIPAClient, logger)
 	authController := controllers22.NewAuthController(authService, sender, logger)
 	authModuleImpl := auth.NewAuthModule(authController)
 	organizationRepository := repositories2.NewOrganizationRepository(databaseDatabase, logger)

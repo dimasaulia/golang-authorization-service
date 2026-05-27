@@ -394,9 +394,7 @@ func (r *RolePermissionRepositoryImpl) roleSummaryBuilder(params shared.ListPara
 		LeftJoin("modules m ON m.id = p.module_id").
 		Join("apps a ON a.id = COALESCE(m.app_id, p.app_id)").
 		GroupBy("ro.id", "ro.code", "ro.name", "ro.description", "ro.scope", "a.id", "a.code", "a.name").
-		OrderBy("ro.id DESC", "a.id DESC").
-		Limit(params.Limit).
-		Offset(params.Offset)
+		OrderBy("ro.id DESC", "a.id DESC")
 
 	if params.Search != "" {
 		search := "%" + params.Search + "%"
@@ -431,9 +429,7 @@ func (r *RolePermissionRepositoryImpl) availablePermissionBuilder(params shared.
 		From("permissions p").
 		LeftJoin("modules m ON m.id = p.module_id").
 		Join("apps a ON a.id = COALESCE(m.app_id, p.app_id)").
-		OrderBy("m.name ASC NULLS LAST", "p.name ASC").
-		Limit(params.Limit).
-		Offset(params.Offset)
+		OrderBy("m.name ASC NULLS LAST", "p.name ASC")
 
 	if params.Search != "" {
 		search := "%" + params.Search + "%"

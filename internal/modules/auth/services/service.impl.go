@@ -3,7 +3,10 @@ package services
 import (
 	"bytes"
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -17,6 +20,7 @@ import (
 
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/auth/dto"
+	"github.com/open-suite/authorization/internal/modules/auth/repositories"
 	userRepositories "github.com/open-suite/authorization/internal/modules/users/repositories"
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/freeipa"
@@ -40,12 +44,13 @@ var (
 )
 
 type AuthServiceImpl struct {
-	cfg            config.Config
-	redis          *redis.Redis
-	userRepository userRepositories.UserRepository
-	freeipa        freeipa.Client
-	log            *logger.LayerLogger
-	httpClient     *http.Client
+	cfg              config.Config
+	redis            *redis.Redis
+	userRepository   userRepositories.UserRepository
+	accessRepository repositories.AccessRepository
+	freeipa          freeipa.Client
+	log              *logger.LayerLogger
+	httpClient       *http.Client
 }
 
 type googleState struct {
@@ -59,14 +64,15 @@ type googleTokenResponse struct {
 	IDToken     string `json:"id_token"`
 }
 
-func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, freeIPAClient freeipa.Client, appLogger *logger.Logger) AuthService {
+func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, accessRepository repositories.AccessRepository, freeIPAClient freeipa.Client, appLogger *logger.Logger) AuthService {
 	return &AuthServiceImpl{
-		cfg:            cfg,
-		redis:          redisClient,
-		userRepository: userRepository,
-		freeipa:        freeIPAClient,
-		log:            appLogger.Layer("service.auth"),
-		httpClient:     &http.Client{Timeout: 15 * time.Second},
+		cfg:              cfg,
+		redis:            redisClient,
+		userRepository:   userRepository,
+		accessRepository: accessRepository,
+		freeipa:          freeIPAClient,
+		log:              appLogger.Layer("service.auth"),
+		httpClient:       &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -162,6 +168,92 @@ func (s *AuthServiceImpl) validateGoogleConfig() error {
 		return ErrGoogleOAuthNotConfigured
 	}
 	return nil
+}
+
+func (s *AuthServiceImpl) AccessSummary(ctx context.Context, userID int64, appCode string) (*dto.AccessSummaryResponse, error) {
+	appCode = strings.TrimSpace(appCode)
+	cacheKey := accessCacheKey(userID, appCode)
+	var cached dto.AccessSummaryResponse
+	if ok := s.getCache(ctx, cacheKey, &cached); ok {
+		return &cached, nil
+	}
+
+	item, err := s.accessRepository.FindAccessSummary(ctx, userID, appCode)
+	if err != nil {
+		return nil, err
+	}
+	s.setCache(ctx, cacheKey, item)
+	return item, nil
+}
+
+func (s *AuthServiceImpl) Apps(ctx context.Context, userID int64) (*dto.UserAppAccessResponse, error) {
+	cacheKey := appsCacheKey(userID)
+	var cached dto.UserAppAccessResponse
+	if ok := s.getCache(ctx, cacheKey, &cached); ok {
+		return &cached, nil
+	}
+
+	items, err := s.accessRepository.FindApps(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	response := &dto.UserAppAccessResponse{Items: items}
+	s.setCache(ctx, cacheKey, response)
+	return response, nil
+}
+
+func (s *AuthServiceImpl) Menus(ctx context.Context, userID int64, appCode string) ([]dto.AccessibleMenu, error) {
+	summary, err := s.AccessSummary(ctx, userID, appCode)
+	if err != nil {
+		return nil, err
+	}
+	return summary.Menus, nil
+}
+
+func (s *AuthServiceImpl) Permissions(ctx context.Context, userID int64, appCode string) ([]string, error) {
+	summary, err := s.AccessSummary(ctx, userID, appCode)
+	if err != nil {
+		return nil, err
+	}
+	return summary.Permissions, nil
+}
+
+func (s *AuthServiceImpl) Check(ctx context.Context, userID int64, appCode string, permission string) (*dto.AccessCheckResponse, error) {
+	permission = strings.TrimSpace(permission)
+	summary, err := s.AccessSummary(ctx, userID, appCode)
+	if err != nil {
+		return nil, err
+	}
+	allowed := false
+	for _, item := range summary.Permissions {
+		if strings.EqualFold(item, permission) {
+			allowed = true
+			break
+		}
+	}
+	return &dto.AccessCheckResponse{
+		Allowed:    allowed,
+		App:        summary.App,
+		Permission: permission,
+	}, nil
+}
+
+func (s *AuthServiceImpl) AccessToken(ctx context.Context, userID int64, appCode string) (*dto.AccessTokenResponse, error) {
+	summary, err := s.AccessSummary(ctx, userID, appCode)
+	if err != nil {
+		return nil, err
+	}
+
+	expiresAt := time.Now().Add(s.cfg.Authz.TokenTTL)
+	token, err := s.signAccessToken(userID, summary, expiresAt)
+	if err != nil {
+		return nil, err
+	}
+	return &dto.AccessTokenResponse{
+		Token:     token,
+		ExpiresIn: int64(time.Until(expiresAt).Seconds()),
+		TokenType: "Bearer",
+	}, nil
 }
 
 func (s *AuthServiceImpl) consumeGoogleState(ctx context.Context, state string) (googleState, error) {
@@ -402,4 +494,66 @@ func newStateToken() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(bytes)
+}
+
+func (s *AuthServiceImpl) getCache(ctx context.Context, key string, target any) bool {
+	raw, err := s.redis.Client.Get(ctx, key).Bytes()
+	if err != nil {
+		return false
+	}
+	return json.Unmarshal(raw, target) == nil
+}
+
+func (s *AuthServiceImpl) setCache(ctx context.Context, key string, value any) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return
+	}
+	if err := s.redis.Client.Set(ctx, key, raw, s.cfg.Authz.CacheTTL).Err(); err != nil {
+		s.log.Warn(ctx, "cache.set_failed", "key", key, "error", err.Error())
+	}
+}
+
+func (s *AuthServiceImpl) signAccessToken(userID int64, summary *dto.AccessSummaryResponse, expiresAt time.Time) (string, error) {
+	header := map[string]any{
+		"alg": "HS256",
+		"typ": "JWT",
+	}
+	payload := map[string]any{
+		"sub":         fmt.Sprintf("%d", userID),
+		"app":         summary.App,
+		"menus":       summary.Menus,
+		"permissions": summary.Permissions,
+		"exp":         expiresAt.Unix(),
+		"iat":         time.Now().Unix(),
+	}
+
+	headerPart, err := encodeJWTPart(header)
+	if err != nil {
+		return "", err
+	}
+	payloadPart, err := encodeJWTPart(payload)
+	if err != nil {
+		return "", err
+	}
+	unsigned := headerPart + "." + payloadPart
+	signature := hmac.New(sha256.New, []byte(s.cfg.Authz.TokenSecret))
+	signature.Write([]byte(unsigned))
+	return unsigned + "." + base64.RawURLEncoding.EncodeToString(signature.Sum(nil)), nil
+}
+
+func encodeJWTPart(value any) (string, error) {
+	raw, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawURLEncoding.EncodeToString(raw), nil
+}
+
+func accessCacheKey(userID int64, appCode string) string {
+	return fmt.Sprintf("authz:access:user:%d:app:%s", userID, strings.ToLower(strings.TrimSpace(appCode)))
+}
+
+func appsCacheKey(userID int64) string {
+	return fmt.Sprintf("authz:apps:user:%d", userID)
 }

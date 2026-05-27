@@ -33,6 +33,7 @@ import (
 	auditlogsServices "github.com/open-suite/authorization/internal/modules/auditlogs/services"
 	"github.com/open-suite/authorization/internal/modules/auth"
 	authControllers "github.com/open-suite/authorization/internal/modules/auth/controllers"
+	authRepositories "github.com/open-suite/authorization/internal/modules/auth/repositories"
 	authServices "github.com/open-suite/authorization/internal/modules/auth/services"
 	"github.com/open-suite/authorization/internal/modules/health"
 	"github.com/open-suite/authorization/internal/modules/health/controllers"
@@ -119,6 +120,7 @@ func Initialize(ctx context.Context) (*App, error) {
 		services.NewHealthService,
 		controllers.NewHealthController,
 		health.NewHealthModule,
+		authRepositories.NewAccessRepository,
 		authServices.NewAuthService,
 		authControllers.NewAuthController,
 		auth.NewAuthModule,
