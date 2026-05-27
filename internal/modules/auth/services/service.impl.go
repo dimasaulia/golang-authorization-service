@@ -24,6 +24,7 @@ import (
 	userRepositories "github.com/open-suite/authorization/internal/modules/users/repositories"
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/freeipa"
+	"github.com/open-suite/authorization/internal/platform/keycloak"
 	"github.com/open-suite/authorization/internal/platform/logger"
 	"github.com/open-suite/authorization/internal/platform/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -48,6 +49,7 @@ type AuthServiceImpl struct {
 	redis            *redis.Redis
 	userRepository   userRepositories.UserRepository
 	accessRepository repositories.AccessRepository
+	keycloak         keycloak.Client
 	freeipa          freeipa.Client
 	log              *logger.LayerLogger
 	httpClient       *http.Client
@@ -64,16 +66,55 @@ type googleTokenResponse struct {
 	IDToken     string `json:"id_token"`
 }
 
-func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, accessRepository repositories.AccessRepository, freeIPAClient freeipa.Client, appLogger *logger.Logger) AuthService {
+func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, accessRepository repositories.AccessRepository, keycloakClient keycloak.Client, freeIPAClient freeipa.Client, appLogger *logger.Logger) AuthService {
 	return &AuthServiceImpl{
 		cfg:              cfg,
 		redis:            redisClient,
 		userRepository:   userRepository,
 		accessRepository: accessRepository,
+		keycloak:         keycloakClient,
 		freeipa:          freeIPAClient,
 		log:              appLogger.Layer("service.auth"),
 		httpClient:       &http.Client{Timeout: 15 * time.Second},
 	}
+}
+
+func (s *AuthServiceImpl) Login(ctx context.Context, request dto.LoginRequest) (*dto.SessionResponse, error) {
+	end := s.log.Start(ctx, "Login")
+	token, err := s.keycloak.Login(ctx, keycloak.LoginInput{
+		Username: strings.TrimSpace(request.Username),
+		Password: request.Password,
+	})
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	end(nil)
+	return sessionResponseFromToken(token), nil
+}
+
+func (s *AuthServiceImpl) Refresh(ctx context.Context, request dto.RefreshRequest) (*dto.SessionResponse, error) {
+	end := s.log.Start(ctx, "Refresh")
+	token, err := s.keycloak.Refresh(ctx, keycloak.RefreshInput{
+		RefreshToken: strings.TrimSpace(request.RefreshToken),
+	})
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	end(nil)
+	return sessionResponseFromToken(token), nil
+}
+
+func (s *AuthServiceImpl) Logout(ctx context.Context, request dto.LogoutRequest) error {
+	end := s.log.Start(ctx, "Logout")
+	err := s.keycloak.Logout(ctx, keycloak.LogoutInput{
+		RefreshToken: strings.TrimSpace(request.RefreshToken),
+	})
+	end(err)
+	return err
 }
 
 func (s *AuthServiceImpl) GoogleRedirectURL(ctx context.Context, organizationID int64) (string, error) {
@@ -556,4 +597,17 @@ func accessCacheKey(userID int64, appCode string) string {
 
 func appsCacheKey(userID int64) string {
 	return fmt.Sprintf("authz:apps:user:%d", userID)
+}
+
+func sessionResponseFromToken(token *keycloak.TokenSet) *dto.SessionResponse {
+	return &dto.SessionResponse{
+		AccessToken:      token.AccessToken,
+		ExpiresIn:        token.ExpiresIn,
+		RefreshExpiresIn: token.RefreshExpiresIn,
+		RefreshToken:     token.RefreshToken,
+		TokenType:        token.TokenType,
+		IDToken:          token.IDToken,
+		SessionState:     token.SessionState,
+		Scope:            token.Scope,
+	}
 }

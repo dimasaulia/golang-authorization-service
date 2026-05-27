@@ -25,6 +25,9 @@ var (
 
 type Client interface {
 	Enabled() bool
+	Login(ctx context.Context, input LoginInput) (*TokenSet, error)
+	Refresh(ctx context.Context, input RefreshInput) (*TokenSet, error)
+	Logout(ctx context.Context, input LogoutInput) error
 	CreateUser(ctx context.Context, input CreateUserInput) (string, error)
 	DeleteUser(ctx context.Context, userID string) error
 }
@@ -50,6 +53,32 @@ type FederatedIdentity struct {
 	IdentityProvider string
 	UserID           string
 	UserName         string
+}
+
+type LoginInput struct {
+	Username string
+	Password string
+	Scope    string
+}
+
+type RefreshInput struct {
+	RefreshToken string
+}
+
+type LogoutInput struct {
+	RefreshToken string
+}
+
+type TokenSet struct {
+	AccessToken      string `json:"access_token"`
+	ExpiresIn        int64  `json:"expires_in"`
+	RefreshExpiresIn int64  `json:"refresh_expires_in"`
+	RefreshToken     string `json:"refresh_token"`
+	TokenType         string `json:"token_type"`
+	IDToken           string `json:"id_token,omitempty"`
+	NotBeforePolicy   int64  `json:"not-before-policy,omitempty"`
+	SessionState      string `json:"session_state,omitempty"`
+	Scope             string `json:"scope,omitempty"`
 }
 
 type tokenResponse struct {
@@ -90,6 +119,85 @@ func New(cfg config.Config, appLogger *logger.Logger) Client {
 
 func (k *Keycloak) Enabled() bool {
 	return k.cfg.Enabled
+}
+
+func (k *Keycloak) Login(ctx context.Context, input LoginInput) (*TokenSet, error) {
+	end := k.log.Start(ctx, "Login")
+	if !k.cfg.Enabled {
+		end(ErrDisabled)
+		return nil, ErrDisabled
+	}
+	if err := k.validateLoginConfig(); err != nil {
+		end(err)
+		return nil, err
+	}
+
+	values := k.loginClientValues()
+	values.Set("grant_type", "password")
+	values.Set("username", input.Username)
+	values.Set("password", input.Password)
+	values.Set("scope", valueOrDefault(input.Scope, "openid profile email"))
+
+	token, err := k.tokenRequest(ctx, values)
+	end(err)
+	return token, err
+}
+
+func (k *Keycloak) Refresh(ctx context.Context, input RefreshInput) (*TokenSet, error) {
+	end := k.log.Start(ctx, "Refresh")
+	if !k.cfg.Enabled {
+		end(ErrDisabled)
+		return nil, ErrDisabled
+	}
+	if err := k.validateLoginConfig(); err != nil {
+		end(err)
+		return nil, err
+	}
+
+	values := k.loginClientValues()
+	values.Set("grant_type", "refresh_token")
+	values.Set("refresh_token", input.RefreshToken)
+
+	token, err := k.tokenRequest(ctx, values)
+	end(err)
+	return token, err
+}
+
+func (k *Keycloak) Logout(ctx context.Context, input LogoutInput) error {
+	end := k.log.Start(ctx, "Logout")
+	if !k.cfg.Enabled {
+		end(ErrDisabled)
+		return ErrDisabled
+	}
+	if err := k.validateLoginConfig(); err != nil {
+		end(err)
+		return err
+	}
+
+	values := k.loginClientValues()
+	values.Set("refresh_token", input.RefreshToken)
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, k.realmURL("/protocol/openid-connect/logout"), strings.NewReader(values.Encode()))
+	if err != nil {
+		end(err)
+		return err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	resp, err := k.httpClient.Do(req)
+	if err != nil {
+		end(err)
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		err := responseError("keycloak logout failed", resp)
+		end(err)
+		return err
+	}
+
+	end(nil)
+	return nil
 }
 
 func (k *Keycloak) CreateUser(ctx context.Context, input CreateUserInput) (string, error) {
@@ -226,6 +334,39 @@ func (k *Keycloak) validateConfig() error {
 	return nil
 }
 
+func (k *Keycloak) validateLoginConfig() error {
+	if k.cfg.BaseURL == "" || k.cfg.Realm == "" || k.cfg.LoginClientID == "" {
+		return ErrNotConfigured
+	}
+	return nil
+}
+
+func (k *Keycloak) loginClientValues() url.Values {
+	values := url.Values{}
+	values.Set("client_id", k.cfg.LoginClientID)
+	if k.cfg.LoginClientSecret != "" {
+		values.Set("client_secret", k.cfg.LoginClientSecret)
+	}
+	return values
+}
+
+func (k *Keycloak) tokenRequest(ctx context.Context, values url.Values) (*TokenSet, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, k.realmURL("/protocol/openid-connect/token"), strings.NewReader(values.Encode()))
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+
+	var token TokenSet
+	if err := k.doJSON(req, &token); err != nil {
+		return nil, err
+	}
+	if token.AccessToken == "" {
+		return nil, errors.New("keycloak access token is empty")
+	}
+	return &token, nil
+}
+
 func (k *Keycloak) adminToken(ctx context.Context) (string, error) {
 	values := url.Values{}
 	values.Set("grant_type", "client_credentials")
@@ -319,4 +460,11 @@ func splitDisplayName(displayName string) (string, string) {
 func responseError(message string, resp *http.Response) error {
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return fmt.Errorf("%s: status=%d body=%s", message, resp.StatusCode, string(body))
+}
+
+func valueOrDefault(value string, fallback string) string {
+	if strings.TrimSpace(value) == "" {
+		return fallback
+	}
+	return value
 }

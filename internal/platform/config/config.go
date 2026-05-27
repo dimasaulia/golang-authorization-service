@@ -79,11 +79,13 @@ type GoogleOAuthConfig struct {
 }
 
 type KeycloakConfig struct {
-	Enabled      bool
-	BaseURL      string
-	Realm        string
-	ClientID     string
-	ClientSecret string
+	Enabled           bool
+	BaseURL           string
+	Realm             string
+	ClientID          string
+	ClientSecret      string
+	LoginClientID     string
+	LoginClientSecret string
 }
 
 type FreeIPAConfig struct {
@@ -152,11 +154,13 @@ func Load() Config {
 			},
 		},
 		Keycloak: KeycloakConfig{
-			Enabled:      boolEnv("KEYCLOAK_ENABLED", false),
-			BaseURL:      strings.TrimRight(env("KEYCLOAK_BASE_URL", ""), "/"),
-			Realm:        env("KEYCLOAK_REALM", ""),
-			ClientID:     env("KEYCLOAK_ADMIN_CLIENT_ID", ""),
-			ClientSecret: env("KEYCLOAK_ADMIN_CLIENT_SECRET", ""),
+			Enabled:           boolEnv("KEYCLOAK_ENABLED", false),
+			BaseURL:           strings.TrimRight(env("KEYCLOAK_BASE_URL", ""), "/"),
+			Realm:             env("KEYCLOAK_REALM", ""),
+			ClientID:          env("KEYCLOAK_ADMIN_CLIENT_ID", ""),
+			ClientSecret:      env("KEYCLOAK_ADMIN_CLIENT_SECRET", ""),
+			LoginClientID:     env("KEYCLOAK_LOGIN_CLIENT_ID", env("KEYCLOAK_ADMIN_CLIENT_ID", "")),
+			LoginClientSecret: env("KEYCLOAK_LOGIN_CLIENT_SECRET", ""),
 		},
 		FreeIPA: FreeIPAConfig{
 			Enabled:            boolEnv("FREEIPA_ENABLED", false),

@@ -21,6 +21,9 @@ func (m *AuthModuleImpl) Name() string {
 }
 
 func (m *AuthModuleImpl) RegisterRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/v1/auth/login", m.AuthController.Login)
+	mux.HandleFunc("POST /api/v1/auth/refresh", m.AuthController.Refresh)
+	mux.HandleFunc("POST /api/v1/auth/logout", m.AuthController.Logout)
 	mux.HandleFunc("GET /api/v1/auth/google/redirect", m.AuthController.GoogleRedirect)
 	mux.HandleFunc("GET /api/v1/auth/google/callback", m.AuthController.GoogleCallback)
 	mux.HandleFunc("GET /api/v1/auth/users/{user_id}/apps", m.AuthController.UserApps)

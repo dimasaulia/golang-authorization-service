@@ -1,11 +1,14 @@
 package controllers
 
 import (
+	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 	"strings"
 
+	"github.com/open-suite/authorization/internal/modules/auth/dto"
 	"github.com/open-suite/authorization/internal/modules/auth/services"
 	"github.com/open-suite/authorization/internal/platform/logger"
 	"github.com/open-suite/authorization/internal/shared/response"
@@ -23,6 +26,89 @@ func NewAuthController(service services.AuthService, sender *response.Sender, ap
 		response:    sender,
 		log:         appLogger.Layer("controller.auth"),
 	}
+}
+
+func (c *AuthControllerImpl) Login(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "Login")
+
+	var request dto.LoginRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "auth.login.invalid_payload", nil)
+		return
+	}
+
+	result, err := c.AuthService.Login(r.Context(), request)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusUnauthorized, "auth.login.failed", nil)
+		return
+	}
+	if request.SetCookie {
+		setSessionCookies(w, r, result)
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "auth.login.success", result)
+}
+
+func (c *AuthControllerImpl) Refresh(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "Refresh")
+
+	var request dto.RefreshRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if !errors.Is(err, io.EOF) {
+			end(err)
+			c.response.Error(w, r, http.StatusBadRequest, "auth.refresh.invalid_payload", nil)
+			return
+		}
+	}
+	if request.RefreshToken == "" {
+		if cookie, err := r.Cookie("refresh_token"); err == nil {
+			request.RefreshToken = cookie.Value
+		}
+	}
+
+	result, err := c.AuthService.Refresh(r.Context(), request)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusUnauthorized, "auth.refresh.failed", nil)
+		return
+	}
+	if request.SetCookie {
+		setSessionCookies(w, r, result)
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "auth.refresh.success", result)
+}
+
+func (c *AuthControllerImpl) Logout(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "Logout")
+
+	var request dto.LogoutRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		if !errors.Is(err, io.EOF) {
+			end(err)
+			c.response.Error(w, r, http.StatusBadRequest, "auth.logout.invalid_payload", nil)
+			return
+		}
+	}
+	if request.RefreshToken == "" {
+		if cookie, err := r.Cookie("refresh_token"); err == nil {
+			request.RefreshToken = cookie.Value
+		}
+	}
+
+	if err := c.AuthService.Logout(r.Context(), request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "auth.logout.failed", nil)
+		return
+	}
+	clearSessionCookies(w, r)
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "auth.logout.success", nil)
 }
 
 func (c *AuthControllerImpl) GoogleRedirect(w http.ResponseWriter, r *http.Request) {
@@ -188,4 +274,34 @@ func parseAccessPath(r *http.Request) (int64, string, error) {
 		return 0, "", errors.New("empty app")
 	}
 	return userID, appCode, nil
+}
+
+func setSessionCookies(w http.ResponseWriter, r *http.Request, session *dto.SessionResponse) {
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	setCookie(w, "access_token", session.AccessToken, int(session.ExpiresIn), secure)
+	if session.RefreshToken != "" {
+		setCookie(w, "refresh_token", session.RefreshToken, int(session.RefreshExpiresIn), secure)
+	}
+	if session.IDToken != "" {
+		setCookie(w, "id_token", session.IDToken, int(session.ExpiresIn), secure)
+	}
+}
+
+func clearSessionCookies(w http.ResponseWriter, r *http.Request) {
+	secure := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
+	setCookie(w, "access_token", "", -1, secure)
+	setCookie(w, "refresh_token", "", -1, secure)
+	setCookie(w, "id_token", "", -1, secure)
+}
+
+func setCookie(w http.ResponseWriter, name string, value string, maxAge int, secure bool) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     name,
+		Value:    value,
+		Path:     "/",
+		MaxAge:   maxAge,
+		HttpOnly: true,
+		Secure:   secure,
+		SameSite: http.SameSiteLaxMode,
+	})
 }

@@ -7,6 +7,9 @@ import (
 )
 
 type AuthService interface {
+	Login(ctx context.Context, request dto.LoginRequest) (*dto.SessionResponse, error)
+	Refresh(ctx context.Context, request dto.RefreshRequest) (*dto.SessionResponse, error)
+	Logout(ctx context.Context, request dto.LogoutRequest) error
 	GoogleRedirectURL(ctx context.Context, organizationID int64) (string, error)
 	HandleGoogleCallback(ctx context.Context, code string, state string) (*dto.GoogleCallbackResponse, string, error)
 	AccessSummary(ctx context.Context, userID int64, appCode string) (*dto.AccessSummaryResponse, error)

@@ -136,7 +136,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	healthModuleImpl := health.NewHealthModule(healthController)
 	userRepository := repositories3.NewUserRepository(databaseDatabase, logger)
 	accessRepository := repositories22.NewAccessRepository(databaseDatabase, logger)
-	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, accessRepository, freeIPAClient, logger)
+	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, accessRepository, keycloakClient, freeIPAClient, logger)
 	authController := controllers22.NewAuthController(authService, sender, logger)
 	authModuleImpl := auth.NewAuthModule(authController)
 	organizationRepository := repositories2.NewOrganizationRepository(databaseDatabase, logger)
