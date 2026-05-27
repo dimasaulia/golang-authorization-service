@@ -16,6 +16,8 @@ import (
 	"github.com/open-suite/authorization/internal/modules/users/dto"
 	"github.com/open-suite/authorization/internal/modules/users/repositories"
 	"github.com/open-suite/authorization/internal/platform/config"
+	"github.com/open-suite/authorization/internal/platform/freeipa"
+	"github.com/open-suite/authorization/internal/platform/keycloak"
 	"github.com/open-suite/authorization/internal/platform/logger"
 	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/shared"
@@ -32,6 +34,9 @@ const (
 
 	purposeEmailVerification = "email_verification"
 	purposePasswordSetup     = "password_setup"
+
+	keycloakProvider = "keycloak"
+	freeIpaProvider  = "freeipa"
 )
 
 var ErrInvalidRequest = errors.New("invalid user request")
@@ -41,16 +46,20 @@ type UserServiceImpl struct {
 	UserRoleService   userRoleServices.UserRoleService
 	TeamMemberService teamMemberServices.TeamMemberService
 	cfg               config.Config
+	keycloak          keycloak.Client
+	freeipa           freeipa.Client
 	mailer            mailer.Mailer
 	log               *logger.LayerLogger
 }
 
-func NewUserService(repository repositories.UserRepository, userRoleService userRoleServices.UserRoleService, teamMemberService teamMemberServices.TeamMemberService, cfg config.Config, mailer mailer.Mailer, appLogger *logger.Logger) UserService {
+func NewUserService(repository repositories.UserRepository, userRoleService userRoleServices.UserRoleService, teamMemberService teamMemberServices.TeamMemberService, cfg config.Config, keycloakClient keycloak.Client, freeIPAClient freeipa.Client, mailer mailer.Mailer, appLogger *logger.Logger) UserService {
 	return &UserServiceImpl{
 		UserRepository:    repository,
 		UserRoleService:   userRoleService,
 		TeamMemberService: teamMemberService,
 		cfg:               cfg,
+		keycloak:          keycloakClient,
+		freeipa:           freeIPAClient,
 		mailer:            mailer,
 		log:               appLogger.Layer("service.users"),
 	}
@@ -134,6 +143,25 @@ func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequ
 		}
 	}
 
+	freeIPAUID, err := s.createFreeIPAUser(ctx, item, request.Password)
+	if err != nil {
+		s.deleteCreatedUser(ctx, item.ID)
+		end(err)
+		return nil, err
+	}
+
+	provisionedTo := []string{freeIpaProvider}
+	if s.keycloak.Enabled() {
+		_, err = s.createKeycloakUser(ctx, item, request.Password, input.MustChangePassword, item.Status == userStatusActive)
+		if err != nil {
+			s.deleteFreeIPAUser(ctx, freeIPAUID)
+			s.deleteCreatedUser(ctx, item.ID)
+			end(err)
+			return nil, err
+		}
+		provisionedTo = append(provisionedTo, keycloakProvider)
+	}
+
 	if token != "" {
 		if err := s.sendPasswordSetupEmail(ctx, item.Email, token); err != nil {
 			s.log.Warn(ctx, "send_password_setup_email.failed", "user_id", item.ID, "error", err.Error())
@@ -141,7 +169,7 @@ func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequ
 	}
 
 	end(nil)
-	return toUserResponse(item, input.MustChangePassword, request.CreateInKeycloak, request.CreateInFreeIPA, request.RoleIds, request.TeamIds), nil
+	return toUserResponse(item, input.MustChangePassword, provisionedTo, request.RoleIds, request.TeamIds), nil
 }
 
 func (s *UserServiceImpl) Signup(ctx context.Context, request dto.SignupUserRequest) (*dto.UserResponse, error) {
@@ -183,12 +211,25 @@ func (s *UserServiceImpl) Signup(ctx context.Context, request dto.SignupUserRequ
 		return nil, err
 	}
 
+	createdInKeycloak := s.keycloak.Enabled()
+	if createdInKeycloak {
+		if _, err := s.createKeycloakUser(ctx, item, request.Password, false, true); err != nil {
+			s.deleteCreatedUser(ctx, item.ID)
+			end(err)
+			return nil, err
+		}
+	}
+
 	if err := s.sendEmailVerification(ctx, item.Email, token); err != nil {
 		s.log.Warn(ctx, "send_email_verification.failed", "user_id", item.ID, "error", err.Error())
 	}
 
 	end(nil)
-	return toUserResponse(item, false, false, false, nil, nil), nil
+	provisionedTo := []string{}
+	if createdInKeycloak {
+		provisionedTo = append(provisionedTo, keycloakProvider)
+	}
+	return toUserResponse(item, false, provisionedTo, nil, nil), nil
 }
 
 func (s *UserServiceImpl) SignupWithGoogle(ctx context.Context, request dto.GoogleSignupRequest) (*dto.UserResponse, error) {
@@ -227,7 +268,7 @@ func (s *UserServiceImpl) SignupWithGoogle(ctx context.Context, request dto.Goog
 	}
 
 	end(nil)
-	return toUserResponse(item, false, false, false, nil, nil), nil
+	return toUserResponse(item, false, nil, nil, nil), nil
 }
 
 func (s *UserServiceImpl) VerifyEmail(ctx context.Context, request dto.VerifyEmailRequest) error {
@@ -373,7 +414,75 @@ func (s *UserServiceImpl) deleteCreatedUser(ctx context.Context, userID int64) {
 	}
 }
 
-func toUserResponse(user *entities.User, mustChangePassword bool, createInKeycloak bool, createInFreeIPA bool, roleIDs []int64, teamIDs []int64) *dto.UserResponse {
+func (s *UserServiceImpl) createKeycloakUser(ctx context.Context, user *entities.User, password string, temporaryPassword bool, enabled bool) (string, error) {
+	keycloakUserID, err := s.keycloak.CreateUser(ctx, keycloak.CreateUserInput{
+		Username:          user.Username,
+		Email:             user.Email,
+		DisplayName:       user.DisplayName,
+		Enabled:           enabled,
+		EmailVerified:     user.EmailVerifiedAt != nil,
+		Password:          password,
+		TemporaryPassword: temporaryPassword,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	username := user.Username
+	email := user.Email
+	if err := s.UserRepository.LinkIdentity(ctx, entities.UserIdentity{
+		UserId:         user.ID,
+		Provider:       keycloakProvider,
+		ProviderUserId: keycloakUserID,
+		Username:       &username,
+		Email:          &email,
+		IsPrimary:      true,
+	}); err != nil {
+		_ = s.keycloak.DeleteUser(ctx, keycloakUserID)
+		return "", err
+	}
+
+	return keycloakUserID, nil
+}
+
+func (s *UserServiceImpl) createFreeIPAUser(ctx context.Context, user *entities.User, password string) (string, error) {
+	uid, err := s.freeipa.CreateUser(ctx, freeipa.CreateUserInput{
+		Username:    user.Username,
+		Email:       user.Email,
+		DisplayName: user.DisplayName,
+		Password:    password,
+	})
+	if err != nil {
+		return "", err
+	}
+
+	username := user.Username
+	email := user.Email
+	if err := s.UserRepository.LinkIdentity(ctx, entities.UserIdentity{
+		UserId:         user.ID,
+		Provider:       freeIpaProvider,
+		ProviderUserId: uid,
+		Username:       &username,
+		Email:          &email,
+		IsPrimary:      false,
+	}); err != nil {
+		_ = s.freeipa.DeleteUser(ctx, uid)
+		return "", err
+	}
+
+	return uid, nil
+}
+
+func (s *UserServiceImpl) deleteFreeIPAUser(ctx context.Context, uid string) {
+	if uid == "" {
+		return
+	}
+	if err := s.freeipa.DeleteUser(ctx, uid); err != nil {
+		s.log.Warn(ctx, "freeipa.rollback_failed", "uid", uid, "error", err.Error())
+	}
+}
+
+func toUserResponse(user *entities.User, mustChangePassword bool, provisionedTo []string, roleIDs []int64, teamIDs []int64) *dto.UserResponse {
 	return &dto.UserResponse{
 		ID:                 user.ID,
 		OrganizationId:     user.OrganizationId,
@@ -383,11 +492,8 @@ func toUserResponse(user *entities.User, mustChangePassword bool, createInKeyclo
 		Type:               user.Type,
 		Status:             user.Status,
 		MustChangePassword: mustChangePassword,
-		Provisioning: dto.UserProvisioningRequest{
-			Keycloak: createInKeycloak,
-			FreeIPA:  createInFreeIPA,
-		},
-		RoleIds: roleIDs,
-		TeamIds: teamIDs,
+		ProvisionedTo:      provisionedTo,
+		RoleIds:            roleIDs,
+		TeamIds:            teamIDs,
 	}
 }

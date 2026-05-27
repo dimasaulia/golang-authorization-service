@@ -97,7 +97,9 @@ import (
 	services3 "github.com/open-suite/authorization/internal/modules/users/services"
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/database"
+	"github.com/open-suite/authorization/internal/platform/freeipa"
 	"github.com/open-suite/authorization/internal/platform/i18n"
+	"github.com/open-suite/authorization/internal/platform/keycloak"
 	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/platform/redis"
 	"github.com/open-suite/authorization/internal/shared/response"
@@ -117,6 +119,8 @@ func Initialize(ctx context.Context) (*App, error) {
 	}
 	sender := response.NewSender(translator, logger)
 	mailerMailer := mailer.New(configConfig, logger)
+	keycloakClient := keycloak.New(configConfig, logger)
+	freeIPAClient := freeipa.New(configConfig, logger)
 	databaseDatabase, err := database.New(ctx, configConfig, logger)
 	if err != nil {
 		return nil, err
@@ -130,7 +134,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	healthController := controllers.NewHealthController(healthService, sender, logger)
 	healthModuleImpl := health.NewHealthModule(healthController)
 	userRepository := repositories3.NewUserRepository(databaseDatabase, logger)
-	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, logger)
+	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, freeIPAClient, logger)
 	authController := controllers22.NewAuthController(authService, sender, logger)
 	authModuleImpl := auth.NewAuthModule(authController)
 	organizationRepository := repositories2.NewOrganizationRepository(databaseDatabase, logger)
@@ -185,7 +189,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	teamMemberService := services15.NewTeamMemberService(teamMemberRepository, logger)
 	teamMemberController := controllers15.NewTeamMemberController(teamMemberService, sender, logger)
 	teamMemberModuleImpl := teammembers.NewTeamMemberModule(teamMemberController)
-	userService := services3.NewUserService(userRepository, userRoleService, teamMemberService, configConfig, mailerMailer, logger)
+	userService := services3.NewUserService(userRepository, userRoleService, teamMemberService, configConfig, keycloakClient, freeIPAClient, mailerMailer, logger)
 	userController := controllers3.NewUserController(userService, sender, logger)
 	userModuleImpl := users.NewUserModule(userController)
 	teamRoleRepository := repositories16.NewTeamRoleRepository(databaseDatabase, logger)

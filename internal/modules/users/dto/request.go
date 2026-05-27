@@ -9,8 +9,6 @@ type CreateUserRequest struct {
 	Status             string  `json:"status"`
 	Password           string  `json:"password"`
 	MustChangePassword *bool   `json:"must_change_password"`
-	CreateInKeycloak   bool    `json:"create_in_keycloak"`
-	CreateInFreeIPA    bool    `json:"create_in_freeipa"`
 	SendInvitation     bool    `json:"send_invitation"`
 	RoleIds            []int64 `json:"role_ids"`
 	TeamIds            []int64 `json:"team_ids"`

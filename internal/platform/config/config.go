@@ -17,6 +17,8 @@ type Config struct {
 	CORS     CORSConfig
 	Mail     MailConfig
 	OAuth    OAuthConfig
+	Keycloak KeycloakConfig
+	FreeIPA  FreeIPAConfig
 }
 
 type AppConfig struct {
@@ -75,6 +77,22 @@ type GoogleOAuthConfig struct {
 	FailureRedirectURL    string
 }
 
+type KeycloakConfig struct {
+	Enabled      bool
+	BaseURL      string
+	Realm        string
+	ClientID     string
+	ClientSecret string
+}
+
+type FreeIPAConfig struct {
+	Enabled            bool
+	BaseURL            string
+	Username           string
+	Password           string
+	InsecureSkipVerify bool
+}
+
 func Load() Config {
 	_ = godotenv.Load()
 
@@ -125,6 +143,20 @@ func Load() Config {
 				SuccessRedirectURL:    env("GOOGLE_SUCCESS_REDIRECT_URL", ""),
 				FailureRedirectURL:    env("GOOGLE_FAILURE_REDIRECT_URL", ""),
 			},
+		},
+		Keycloak: KeycloakConfig{
+			Enabled:      boolEnv("KEYCLOAK_ENABLED", false),
+			BaseURL:      strings.TrimRight(env("KEYCLOAK_BASE_URL", ""), "/"),
+			Realm:        env("KEYCLOAK_REALM", ""),
+			ClientID:     env("KEYCLOAK_ADMIN_CLIENT_ID", ""),
+			ClientSecret: env("KEYCLOAK_ADMIN_CLIENT_SECRET", ""),
+		},
+		FreeIPA: FreeIPAConfig{
+			Enabled:            boolEnv("FREEIPA_ENABLED", false),
+			BaseURL:            strings.TrimRight(env("FREEIPA_BASE_URL", ""), "/"),
+			Username:           env("FREEIPA_USERNAME", ""),
+			Password:           env("FREEIPA_PASSWORD", ""),
+			InsecureSkipVerify: boolEnv("FREEIPA_INSECURE_SKIP_VERIFY", false),
 		},
 	}
 }

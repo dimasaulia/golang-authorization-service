@@ -96,7 +96,9 @@ import (
 	usersServices "github.com/open-suite/authorization/internal/modules/users/services"
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/database"
+	"github.com/open-suite/authorization/internal/platform/freeipa"
 	"github.com/open-suite/authorization/internal/platform/i18n"
+	"github.com/open-suite/authorization/internal/platform/keycloak"
 	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/platform/redis"
 	"github.com/open-suite/authorization/internal/shared/response"
@@ -110,6 +112,8 @@ func Initialize(ctx context.Context) (*App, error) {
 		redis.New,
 		i18n.NewTranslator,
 		mailer.New,
+		keycloak.New,
+		freeipa.New,
 		response.NewSender,
 		repositories.NewHealthRepository,
 		services.NewHealthService,

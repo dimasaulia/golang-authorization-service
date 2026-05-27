@@ -19,6 +19,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/auth/dto"
 	userRepositories "github.com/open-suite/authorization/internal/modules/users/repositories"
 	"github.com/open-suite/authorization/internal/platform/config"
+	"github.com/open-suite/authorization/internal/platform/freeipa"
 	"github.com/open-suite/authorization/internal/platform/logger"
 	"github.com/open-suite/authorization/internal/platform/redis"
 	goredis "github.com/redis/go-redis/v9"
@@ -29,6 +30,7 @@ const (
 	googleTokenURL     = "https://oauth2.googleapis.com/token"
 	googleUserInfoURL  = "https://openidconnect.googleapis.com/v1/userinfo"
 	googleProvider     = "google"
+	freeIPAProvider    = "freeipa"
 )
 
 var (
@@ -41,6 +43,7 @@ type AuthServiceImpl struct {
 	cfg            config.Config
 	redis          *redis.Redis
 	userRepository userRepositories.UserRepository
+	freeipa        freeipa.Client
 	log            *logger.LayerLogger
 	httpClient     *http.Client
 }
@@ -56,11 +59,12 @@ type googleTokenResponse struct {
 	IDToken     string `json:"id_token"`
 }
 
-func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, appLogger *logger.Logger) AuthService {
+func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, freeIPAClient freeipa.Client, appLogger *logger.Logger) AuthService {
 	return &AuthServiceImpl{
 		cfg:            cfg,
 		redis:          redisClient,
 		userRepository: userRepository,
+		freeipa:        freeIPAClient,
 		log:            appLogger.Layer("service.auth"),
 		httpClient:     &http.Client{Timeout: 15 * time.Second},
 	}
@@ -112,7 +116,6 @@ func (s *AuthServiceImpl) HandleGoogleCallback(ctx context.Context, code string,
 	code = strings.TrimSpace(code)
 	state = strings.TrimSpace(state)
 	if code == "" || state == "" {
-		fmt.Println("CODE AND STATE EMPTY")
 		end(ErrInvalidGoogleCallback)
 		return nil, s.failureRedirectURL("invalid_callback"), ErrInvalidGoogleCallback
 	}
@@ -135,7 +138,6 @@ func (s *AuthServiceImpl) HandleGoogleCallback(ctx context.Context, code string,
 		return nil, s.failureRedirectURL("userinfo_failed"), err
 	}
 	if googleUser.Sub == "" || googleUser.Email == "" {
-		fmt.Println("SUB AND EMAIL EMPTY")
 		end(ErrInvalidGoogleCallback)
 		return nil, s.failureRedirectURL("invalid_userinfo"), ErrInvalidGoogleCallback
 	}
@@ -214,9 +216,6 @@ func (s *AuthServiceImpl) fetchGoogleUser(ctx context.Context, accessToken strin
 	if err != nil {
 		return dto.GoogleUserInfo{}, err
 	}
-
-	fmt.Println("TOKEN")
-	fmt.Println(accessToken)
 	req.Header.Set("Authorization", "Bearer "+accessToken)
 
 	var user dto.GoogleUserInfo
@@ -253,6 +252,9 @@ func (s *AuthServiceImpl) findOrCreateGoogleUser(ctx context.Context, organizati
 			_ = s.userRepository.MarkEmailVerified(ctx, user.ID)
 			user, _ = s.userRepository.FindByID(ctx, user.ID)
 		}
+		if err := s.ensureGoogleUserInFreeIPA(ctx, user, false); err != nil {
+			return nil, false, err
+		}
 		return user, false, nil
 	}
 	if !errors.Is(err, userRepositories.ErrNotFound) {
@@ -276,6 +278,9 @@ func (s *AuthServiceImpl) findOrCreateGoogleUser(ctx context.Context, organizati
 		if googleUser.EmailVerified && existingUser.EmailVerifiedAt == nil {
 			_ = s.userRepository.MarkEmailVerified(ctx, existingUser.ID)
 			existingUser, _ = s.userRepository.FindByID(ctx, existingUser.ID)
+		}
+		if err := s.ensureGoogleUserInFreeIPA(ctx, existingUser, false); err != nil {
+			return nil, false, err
 		}
 		return existingUser, false, nil
 	}
@@ -311,7 +316,44 @@ func (s *AuthServiceImpl) findOrCreateGoogleUser(ctx context.Context, organizati
 		_ = s.userRepository.MarkEmailVerified(ctx, user.ID)
 		user, _ = s.userRepository.FindByID(ctx, user.ID)
 	}
+	if err := s.ensureGoogleUserInFreeIPA(ctx, user, true); err != nil {
+		_ = s.userRepository.Delete(ctx, user.ID)
+		return nil, false, err
+	}
 	return user, true, nil
+}
+
+func (s *AuthServiceImpl) ensureGoogleUserInFreeIPA(ctx context.Context, user *entities.User, rollbackFreeIPAOnLinkFailure bool) error {
+	uid, err := s.freeipa.CreateUser(ctx, freeipa.CreateUserInput{
+		Username:    user.Username,
+		Email:       user.Email,
+		DisplayName: user.DisplayName,
+	})
+	if err != nil {
+		return err
+	}
+
+	if existingUser, err := s.userRepository.FindByIdentity(ctx, freeIPAProvider, uid); err == nil && existingUser.ID == user.ID {
+		return nil
+	}
+
+	username := user.Username
+	email := user.Email
+	if err := s.userRepository.LinkIdentity(ctx, entities.UserIdentity{
+		UserId:         user.ID,
+		Provider:       freeIPAProvider,
+		ProviderUserId: uid,
+		Username:       &username,
+		Email:          &email,
+		IsPrimary:      false,
+	}); err != nil {
+		if rollbackFreeIPAOnLinkFailure {
+			_ = s.freeipa.DeleteUser(ctx, uid)
+		}
+		return err
+	}
+
+	return nil
 }
 
 func usernameFromGoogleUser(user dto.GoogleUserInfo) string {
