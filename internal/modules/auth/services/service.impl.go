@@ -79,6 +79,13 @@ func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository 
 	}
 }
 
+func (s *AuthServiceImpl) JWKS(ctx context.Context) (json.RawMessage, error) {
+	end := s.log.Start(ctx, "JWKS")
+	jwks, err := s.keycloak.JWKS(ctx)
+	end(err)
+	return jwks, err
+}
+
 func (s *AuthServiceImpl) Login(ctx context.Context, request dto.LoginRequest) (*dto.SessionResponse, error) {
 	end := s.log.Start(ctx, "Login")
 	token, err := s.keycloak.Login(ctx, keycloak.LoginInput{
@@ -277,6 +284,14 @@ func (s *AuthServiceImpl) Check(ctx context.Context, userID int64, appCode strin
 		App:        summary.App,
 		Permission: permission,
 	}, nil
+}
+
+func (s *AuthServiceImpl) CheckPermission(ctx context.Context, userID int64, appCode string, permission string) (bool, error) {
+	result, err := s.Check(ctx, userID, appCode, permission)
+	if err != nil {
+		return false, err
+	}
+	return result.Allowed, nil
 }
 
 func (s *AuthServiceImpl) AccessToken(ctx context.Context, userID int64, appCode string) (*dto.AccessTokenResponse, error) {

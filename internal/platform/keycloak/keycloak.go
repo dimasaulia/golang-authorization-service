@@ -25,6 +25,7 @@ var (
 
 type Client interface {
 	Enabled() bool
+	JWKS(ctx context.Context) (json.RawMessage, error)
 	Login(ctx context.Context, input LoginInput) (*TokenSet, error)
 	Refresh(ctx context.Context, input RefreshInput) (*TokenSet, error)
 	Logout(ctx context.Context, input LogoutInput) error
@@ -74,11 +75,11 @@ type TokenSet struct {
 	ExpiresIn        int64  `json:"expires_in"`
 	RefreshExpiresIn int64  `json:"refresh_expires_in"`
 	RefreshToken     string `json:"refresh_token"`
-	TokenType         string `json:"token_type"`
-	IDToken           string `json:"id_token,omitempty"`
-	NotBeforePolicy   int64  `json:"not-before-policy,omitempty"`
-	SessionState      string `json:"session_state,omitempty"`
-	Scope             string `json:"scope,omitempty"`
+	TokenType        string `json:"token_type"`
+	IDToken          string `json:"id_token,omitempty"`
+	NotBeforePolicy  int64  `json:"not-before-policy,omitempty"`
+	SessionState     string `json:"session_state,omitempty"`
+	Scope            string `json:"scope,omitempty"`
 }
 
 type tokenResponse struct {
@@ -119,6 +120,43 @@ func New(cfg config.Config, appLogger *logger.Logger) Client {
 
 func (k *Keycloak) Enabled() bool {
 	return k.cfg.Enabled
+}
+
+func (k *Keycloak) JWKS(ctx context.Context) (json.RawMessage, error) {
+	end := k.log.Start(ctx, "JWKS")
+	if !k.cfg.Enabled {
+		end(ErrDisabled)
+		return nil, ErrDisabled
+	}
+	if k.cfg.BaseURL == "" || k.cfg.Realm == "" {
+		end(ErrNotConfigured)
+		return nil, ErrNotConfigured
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.realmURL("/protocol/openid-connect/certs"), nil)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+	resp, err := k.httpClient.Do(req)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
+		err := fmt.Errorf("keycloak jwks failed: status=%d body=%s", resp.StatusCode, string(body))
+		end(err)
+		return nil, err
+	}
+
+	end(nil)
+	return json.RawMessage(body), nil
 }
 
 func (k *Keycloak) Login(ctx context.Context, input LoginInput) (*TokenSet, error) {

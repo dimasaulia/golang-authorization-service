@@ -102,6 +102,7 @@ import (
 	"github.com/open-suite/authorization/internal/platform/keycloak"
 	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/platform/redis"
+	"github.com/open-suite/authorization/internal/shared/middleware"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
 
@@ -116,6 +117,8 @@ func Initialize(ctx context.Context) (*App, error) {
 		keycloak.New,
 		freeipa.New,
 		response.NewSender,
+		ProvidePermissionChecker,
+		middleware.NewAuthenticator,
 		repositories.NewHealthRepository,
 		services.NewHealthService,
 		controllers.NewHealthController,

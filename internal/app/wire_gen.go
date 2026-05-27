@@ -103,6 +103,7 @@ import (
 	"github.com/open-suite/authorization/internal/platform/keycloak"
 	"github.com/open-suite/authorization/internal/platform/mailer"
 	"github.com/open-suite/authorization/internal/platform/redis"
+	"github.com/open-suite/authorization/internal/shared/middleware"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
 
@@ -137,6 +138,8 @@ func Initialize(ctx context.Context) (*App, error) {
 	userRepository := repositories3.NewUserRepository(databaseDatabase, logger)
 	accessRepository := repositories22.NewAccessRepository(databaseDatabase, logger)
 	authService := services22.NewAuthService(configConfig, redisRedis, userRepository, accessRepository, keycloakClient, freeIPAClient, logger)
+	permissionChecker := ProvidePermissionChecker(authService)
+	authenticator := middleware.NewAuthenticator(configConfig, databaseDatabase, redisRedis, permissionChecker, sender, logger)
 	authController := controllers22.NewAuthController(authService, sender, logger)
 	authModuleImpl := auth.NewAuthModule(authController)
 	organizationRepository := repositories2.NewOrganizationRepository(databaseDatabase, logger)
@@ -150,7 +153,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	appRepository := repositories5.NewAppRepository(databaseDatabase, logger)
 	appService := services5.NewAppService(appRepository, logger)
 	appController := controllers5.NewAppController(appService, sender, logger)
-	appModuleImpl := apps.NewAppModule(appController)
+	appModuleImpl := apps.NewAppModule(appController, configConfig, authenticator)
 	appClientRepository := repositories6.NewAppClientRepository(databaseDatabase, logger)
 	appClientService := services6.NewAppClientService(appClientRepository, logger)
 	appClientController := controllers6.NewAppClientController(appClientService, sender, logger)
@@ -219,6 +222,6 @@ func Initialize(ctx context.Context) (*App, error) {
 	releaseNoteController := controllers21.NewReleaseNoteController(releaseNoteService, sender, logger)
 	releaseNoteModuleImpl := releasenotes.NewReleaseNoteModule(releaseNoteController)
 	v := ProvideModules(healthModuleImpl, authModuleImpl, organizationModuleImpl, userModuleImpl, userIdentityModuleImpl, appModuleImpl, appClientModuleImpl, moduleModuleImpl, actionModuleImpl, permissionModuleImpl, menuModuleImpl, roleModuleImpl, rolePermissionModuleImpl, userRoleModuleImpl, teamModuleImpl, teamMemberModuleImpl, teamRoleModuleImpl, userPermissionOverrideModuleImpl, accessCacheVersionModuleImpl, auditLogModuleImpl, appPermissionManifestModuleImpl, releaseNoteModuleImpl)
-	app := New(configConfig, logger, sender, databaseDatabase, redisRedis, v)
+	app := New(configConfig, logger, sender, databaseDatabase, redisRedis, authenticator, v)
 	return app, nil
 }

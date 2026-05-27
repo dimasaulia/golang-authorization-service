@@ -8,6 +8,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/apps"
 	"github.com/open-suite/authorization/internal/modules/auditlogs"
 	"github.com/open-suite/authorization/internal/modules/auth"
+	authServices "github.com/open-suite/authorization/internal/modules/auth/services"
 	"github.com/open-suite/authorization/internal/modules/health"
 	"github.com/open-suite/authorization/internal/modules/menus"
 	"github.com/open-suite/authorization/internal/modules/modules"
@@ -25,6 +26,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/users"
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared/middleware"
 )
 
 var _ Module = (*health.HealthModuleImpl)(nil)
@@ -55,6 +57,10 @@ func ProvideLogger(cfg config.Config) (*logger.Logger, error) {
 		Level:  cfg.Logger.Level,
 		LogDir: cfg.Logger.LogDir,
 	})
+}
+
+func ProvidePermissionChecker(service authServices.AuthService) middleware.PermissionChecker {
+	return service
 }
 
 func ProvideModules(healthModule *health.HealthModuleImpl, authModule *auth.AuthModuleImpl, organizationModule *organizations.OrganizationModuleImpl, userModule *users.UserModuleImpl, userIdentityModule *useridentities.UserIdentityModuleImpl, appModule *apps.AppModuleImpl, appClientModule *appclients.AppClientModuleImpl, moduleModule *modules.ModuleModuleImpl, actionModule *actions.ActionModuleImpl, permissionModule *permissions.PermissionModuleImpl, menuModule *menus.MenuModuleImpl, roleModule *roles.RoleModuleImpl, rolePermissionModule *rolepermissions.RolePermissionModuleImpl, userRoleModule *userroles.UserRoleModuleImpl, teamModule *teams.TeamModuleImpl, teamMemberModule *teammembers.TeamMemberModuleImpl, teamRoleModule *teamroles.TeamRoleModuleImpl, userPermissionOverrideModule *userpermissionoverrides.UserPermissionOverrideModuleImpl, accessCacheVersionModule *accesscacheversions.AccessCacheVersionModuleImpl, auditLogModule *auditlogs.AuditLogModuleImpl, appPermissionManifestModule *apppermissionmanifests.AppPermissionManifestModuleImpl, releaseNoteModule *releasenotes.ReleaseNoteModuleImpl) []Module {

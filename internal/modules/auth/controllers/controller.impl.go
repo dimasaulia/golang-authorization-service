@@ -28,6 +28,21 @@ func NewAuthController(service services.AuthService, sender *response.Sender, ap
 	}
 }
 
+func (c *AuthControllerImpl) JWKS(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "JWKS")
+	jwks, err := c.AuthService.JWKS(r.Context())
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "auth.jwks.failed", nil)
+		return
+	}
+
+	end(nil)
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	_, _ = w.Write(jwks)
+}
+
 func (c *AuthControllerImpl) Login(w http.ResponseWriter, r *http.Request) {
 	end := c.log.Start(r.Context(), "Login")
 

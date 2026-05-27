@@ -1,6 +1,9 @@
 {
   "health.live": "Layanan aktif",
   "health.ready": "Layanan siap",
+  "auth.jwks.failed": "Gagal mengambil JWKS",
+  "auth.unauthorized": "Token autentikasi tidak valid",
+  "auth.forbidden": "Akses tidak diizinkan",
   "auth.login.success": "Login berhasil",
   "auth.login.failed": "Login gagal",
   "auth.login.invalid_payload": "Payload login tidak valid",

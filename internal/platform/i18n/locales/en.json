@@ -1,6 +1,9 @@
 {
   "health.live": "Service is live",
   "health.ready": "Service is ready",
+  "auth.jwks.failed": "Failed to retrieve JWKS",
+  "auth.unauthorized": "Authentication token is invalid",
+  "auth.forbidden": "Access is forbidden",
   "auth.login.success": "Login successful",
   "auth.login.failed": "Login failed",
   "auth.login.invalid_payload": "Login payload is invalid",

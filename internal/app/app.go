@@ -18,10 +18,11 @@ type App struct {
 	sender  *response.Sender
 	db      *database.Database
 	redis   *redis.Redis
+	auth    *middleware.Authenticator
 	modules []Module
 }
 
-func New(cfg config.Config, appLogger *logger.Logger, sender *response.Sender, db *database.Database, redisClient *redis.Redis, modules []Module) *App {
+func New(cfg config.Config, appLogger *logger.Logger, sender *response.Sender, db *database.Database, redisClient *redis.Redis, auth *middleware.Authenticator, modules []Module) *App {
 	return &App{
 		cfg:     cfg,
 		logger:  appLogger,
@@ -29,6 +30,7 @@ func New(cfg config.Config, appLogger *logger.Logger, sender *response.Sender, d
 		sender:  sender,
 		db:      db,
 		redis:   redisClient,
+		auth:    auth,
 		modules: modules,
 	}
 }
@@ -64,6 +66,7 @@ func (a *App) Handler() http.Handler {
 		middleware.CORS(a.cfg.CORS),
 		middleware.RequestContext,
 		middleware.Recover(a.logger, a.sender),
+		a.auth.AuthenticateOptional,
 		middleware.RequestLogger(a.logger),
 	)
 }

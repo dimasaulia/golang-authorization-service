@@ -98,6 +98,7 @@ type FreeIPAConfig struct {
 
 type AuthzConfig struct {
 	CacheTTL    time.Duration
+	AppCode     string
 	TokenSecret string
 	TokenTTL    time.Duration
 }
@@ -171,6 +172,7 @@ func Load() Config {
 		},
 		Authz: AuthzConfig{
 			CacheTTL:    durationEnv("AUTHZ_CACHE_TTL", 5*time.Minute),
+			AppCode:     env("AUTHZ_APP_CODE", "authorization-center"),
 			TokenSecret: env("AUTHZ_TOKEN_SECRET", "change-me"),
 			TokenTTL:    durationEnv("AUTHZ_TOKEN_TTL", 15*time.Minute),
 		},
