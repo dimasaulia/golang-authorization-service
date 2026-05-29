@@ -14,6 +14,7 @@ type AuthService interface {
 	Logout(ctx context.Context, request dto.LogoutRequest) error
 	GoogleRedirectURL(ctx context.Context, organizationID int64) (string, error)
 	HandleGoogleCallback(ctx context.Context, code string, state string) (*dto.GoogleCallbackResponse, string, error)
+	CurrentUserAccess(ctx context.Context, userID int64) (*dto.CurrentUserAccessResponse, error)
 	AccessSummary(ctx context.Context, userID int64, appCode string) (*dto.AccessSummaryResponse, error)
 	Apps(ctx context.Context, userID int64) (*dto.UserAppAccessResponse, error)
 	Menus(ctx context.Context, userID int64, appCode string) ([]dto.AccessibleMenu, error)

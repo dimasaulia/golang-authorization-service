@@ -141,7 +141,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	permissionChecker := ProvidePermissionChecker(authService)
 	authenticator := middleware.NewAuthenticator(configConfig, databaseDatabase, redisRedis, permissionChecker, sender, logger)
 	authController := controllers22.NewAuthController(authService, sender, logger)
-	authModuleImpl := auth.NewAuthModule(authController)
+	authModuleImpl := auth.NewAuthModule(authController, authenticator)
 	organizationRepository := repositories2.NewOrganizationRepository(databaseDatabase, logger)
 	organizationService := services2.NewOrganizationService(organizationRepository, logger)
 	organizationController := controllers2.NewOrganizationController(organizationService, sender, logger)

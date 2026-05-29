@@ -16,6 +16,8 @@
   "auth.google_redirect.failed": "Failed to redirect to Google",
   "auth.google_callback.success": "Google authentication completed successfully",
   "auth.google_callback.failed": "Failed to complete Google authentication",
+  "auth.current_user.success": "Current user information retrieved successfully",
+  "auth.current_user.failed": "Failed to retrieve current user information",
   "auth.access.apps.success": "Accessible apps retrieved successfully",
   "auth.access.summary.success": "Access summary retrieved successfully",
   "auth.access.menus.success": "Accessible menus retrieved successfully",

@@ -218,6 +218,40 @@ func (s *AuthServiceImpl) validateGoogleConfig() error {
 	return nil
 }
 
+func (s *AuthServiceImpl) CurrentUserAccess(ctx context.Context, userID int64) (*dto.CurrentUserAccessResponse, error) {
+	cacheKey := currentUserAccessCacheKey(userID)
+	var cached dto.CurrentUserAccessResponse
+	if ok := s.getCache(ctx, cacheKey, &cached); ok {
+		return &cached, nil
+	}
+
+	user, err := s.userRepository.FindByID(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	providers, err := s.accessRepository.FindUserProviders(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	accessibleApps, err := s.accessRepository.FindApps(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	apps, err := s.accessRepository.FindAppPermissionCountSummaries(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+
+	response := &dto.CurrentUserAccessResponse{
+		User:           user,
+		Providers:      providers,
+		AppAccessCount: len(accessibleApps),
+		Apps:           apps,
+	}
+	s.setCache(ctx, cacheKey, response)
+	return response, nil
+}
+
 func (s *AuthServiceImpl) AccessSummary(ctx context.Context, userID int64, appCode string) (*dto.AccessSummaryResponse, error) {
 	appCode = strings.TrimSpace(appCode)
 	cacheKey := accessCacheKey(userID, appCode)
@@ -612,6 +646,10 @@ func accessCacheKey(userID int64, appCode string) string {
 
 func appsCacheKey(userID int64) string {
 	return fmt.Sprintf("authz:apps:user:%d", userID)
+}
+
+func currentUserAccessCacheKey(userID int64) string {
+	return fmt.Sprintf("authz:me:user:%d", userID)
 }
 
 func sessionResponseFromToken(token *keycloak.TokenSet) *dto.SessionResponse {

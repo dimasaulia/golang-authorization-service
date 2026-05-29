@@ -31,6 +31,17 @@ type appRow struct {
 	Name string `db:"name"`
 }
 
+type userProviderRow struct {
+	Provider  string `db:"provider"`
+	IsPrimary bool   `db:"is_primary"`
+}
+
+type appPermissionCountRow struct {
+	Code            string `db:"code"`
+	Name            string `db:"name"`
+	PermissionCount int64  `db:"permission_count"`
+}
+
 func NewAccessRepository(db *database.Database, appLogger *logger.Logger) AccessRepository {
 	return &AccessRepositoryImpl{
 		db:  db,
@@ -126,6 +137,100 @@ ORDER BY a.code ASC`
 	items := make([]dto.UserAppAccess, 0, len(apps))
 	for _, app := range apps {
 		items = append(items, dto.UserAppAccess{Code: app.Code, Name: app.Name})
+	}
+	return items, nil
+}
+
+func (r *AccessRepositoryImpl) FindUserProviders(ctx context.Context, userID int64) ([]dto.CurrentUserProvider, error) {
+	query := `
+SELECT provider, is_primary
+FROM user_identities
+WHERE user_id = $1
+ORDER BY is_primary DESC, provider ASC`
+
+	rows, err := r.db.Pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	providers, err := pgx.CollectRows(rows, pgx.RowToStructByName[userProviderRow])
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.CurrentUserProvider, 0, len(providers))
+	for _, provider := range providers {
+		items = append(items, dto.CurrentUserProvider{
+			Provider:  provider.Provider,
+			IsPrimary: provider.IsPrimary,
+		})
+	}
+	return items, nil
+}
+
+func (r *AccessRepositoryImpl) FindAppPermissionCountSummaries(ctx context.Context, userID int64) ([]dto.AppPermissionCountSummary, error) {
+	query := `
+WITH role_sources AS (
+    SELECT ur.role_id
+    FROM user_roles ur
+    JOIN roles r ON r.id = ur.role_id AND r.status = 'active'
+    WHERE ur.user_id = $1
+      AND (ur.expires_at IS NULL OR ur.expires_at > NOW())
+    UNION
+    SELECT tr.role_id
+    FROM team_members tm
+    JOIN team_roles tr ON tr.team_id = tm.team_id
+    JOIN roles r ON r.id = tr.role_id AND r.status = 'active'
+    WHERE tm.user_id = $1
+),
+role_permissions_effective AS (
+    SELECT p.id AS permission_id, p.app_id, rp.effect
+    FROM role_sources rs
+    JOIN role_permissions rp ON rp.role_id = rs.role_id
+    JOIN permissions p ON p.id = rp.permission_id AND p.status = 'active'
+),
+override_permissions AS (
+    SELECT p.id AS permission_id, p.app_id, upo.effect
+    FROM user_permission_overrides upo
+    JOIN permissions p ON p.id = upo.permission_id AND p.status = 'active'
+    WHERE upo.user_id = $1
+      AND (upo.expires_at IS NULL OR upo.expires_at > NOW())
+),
+effective_permissions AS (
+    SELECT permission_id, app_id FROM role_permissions_effective WHERE effect = 'allow'
+    UNION
+    SELECT permission_id, app_id FROM override_permissions WHERE effect = 'allow'
+    EXCEPT
+    SELECT permission_id, app_id FROM role_permissions_effective WHERE effect = 'deny'
+    EXCEPT
+    SELECT permission_id, app_id FROM override_permissions WHERE effect = 'deny'
+)
+SELECT a.code, a.name, COUNT(DISTINCT e.permission_id) AS permission_count
+FROM apps a
+JOIN effective_permissions e ON e.app_id = a.id
+WHERE a.status = 'active'
+GROUP BY a.code, a.name
+ORDER BY a.code ASC`
+
+	rows, err := r.db.Pool.Query(ctx, query, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	apps, err := pgx.CollectRows(rows, pgx.RowToStructByName[appPermissionCountRow])
+	if err != nil {
+		return nil, err
+	}
+
+	items := make([]dto.AppPermissionCountSummary, 0, len(apps))
+	for _, app := range apps {
+		items = append(items, dto.AppPermissionCountSummary{
+			Code:            app.Code,
+			Name:            app.Name,
+			PermissionCount: app.PermissionCount,
+		})
 	}
 	return items, nil
 }

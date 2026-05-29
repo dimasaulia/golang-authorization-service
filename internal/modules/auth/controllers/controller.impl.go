@@ -11,6 +11,7 @@ import (
 	"github.com/open-suite/authorization/internal/modules/auth/dto"
 	"github.com/open-suite/authorization/internal/modules/auth/services"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/shared/requestctx"
 	"github.com/open-suite/authorization/internal/shared/response"
 )
 
@@ -179,6 +180,109 @@ func (c *AuthControllerImpl) GoogleCallback(w http.ResponseWriter, r *http.Reque
 	c.response.Success(w, r, http.StatusOK, "auth.google_callback.success", result)
 }
 
+func (c *AuthControllerImpl) CurrentUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(r)
+	if !ok {
+		c.response.Error(w, r, http.StatusUnauthorized, "auth.unauthorized", nil)
+		return
+	}
+	result, err := c.AuthService.CurrentUserAccess(r.Context(), userID)
+	if err != nil {
+		c.response.Error(w, r, http.StatusInternalServerError, "auth.current_user.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.current_user.success", result)
+}
+
+func (c *AuthControllerImpl) CurrentUserApps(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(r)
+	if !ok {
+		c.response.Error(w, r, http.StatusUnauthorized, "auth.unauthorized", nil)
+		return
+	}
+	result, err := c.AuthService.Apps(r.Context(), userID)
+	if err != nil {
+		c.response.Error(w, r, http.StatusInternalServerError, "auth.access.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.access.apps.success", result)
+}
+
+func (c *AuthControllerImpl) CurrentUserAccessSummary(w http.ResponseWriter, r *http.Request) {
+	userID, appCode, err := parseCurrentUserAccessPath(r)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.access.invalid_request", nil)
+		return
+	}
+	result, err := c.AuthService.AccessSummary(r.Context(), userID, appCode)
+	if err != nil {
+		c.response.Error(w, r, http.StatusInternalServerError, "auth.access.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.access.summary.success", result)
+}
+
+func (c *AuthControllerImpl) CurrentUserAccessMenus(w http.ResponseWriter, r *http.Request) {
+	userID, appCode, err := parseCurrentUserAccessPath(r)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.access.invalid_request", nil)
+		return
+	}
+	result, err := c.AuthService.Menus(r.Context(), userID, appCode)
+	if err != nil {
+		c.response.Error(w, r, http.StatusInternalServerError, "auth.access.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.access.menus.success", map[string]any{"items": result})
+}
+
+func (c *AuthControllerImpl) CurrentUserAccessPermissions(w http.ResponseWriter, r *http.Request) {
+	userID, appCode, err := parseCurrentUserAccessPath(r)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.access.invalid_request", nil)
+		return
+	}
+	result, err := c.AuthService.Permissions(r.Context(), userID, appCode)
+	if err != nil {
+		c.response.Error(w, r, http.StatusInternalServerError, "auth.access.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.access.permissions.success", map[string]any{"items": result})
+}
+
+func (c *AuthControllerImpl) CurrentUserAccessCheck(w http.ResponseWriter, r *http.Request) {
+	userID, appCode, err := parseCurrentUserAccessPath(r)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.access.invalid_request", nil)
+		return
+	}
+	permission := strings.TrimSpace(r.URL.Query().Get("permission"))
+	if permission == "" {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.access.invalid_request", nil)
+		return
+	}
+	result, err := c.AuthService.Check(r.Context(), userID, appCode, permission)
+	if err != nil {
+		c.response.Error(w, r, http.StatusInternalServerError, "auth.access.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.access.check.success", result)
+}
+
+func (c *AuthControllerImpl) CurrentUserAccessToken(w http.ResponseWriter, r *http.Request) {
+	userID, appCode, err := parseCurrentUserAccessPath(r)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.access.invalid_request", nil)
+		return
+	}
+	result, err := c.AuthService.AccessToken(r.Context(), userID, appCode)
+	if err != nil {
+		c.response.Error(w, r, http.StatusInternalServerError, "auth.access.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.access.token.success", result)
+}
+
 func (c *AuthControllerImpl) UserApps(w http.ResponseWriter, r *http.Request) {
 	userID, err := parseUserID(r)
 	if err != nil {
@@ -279,10 +383,27 @@ func parseUserID(r *http.Request) (int64, error) {
 	return strconv.ParseInt(r.PathValue("user_id"), 10, 64)
 }
 
+func currentUserID(r *http.Request) (int64, bool) {
+	userID := requestctx.UserID(r.Context())
+	return userID, userID > 0
+}
+
 func parseAccessPath(r *http.Request) (int64, string, error) {
 	userID, err := parseUserID(r)
 	if err != nil {
 		return 0, "", err
+	}
+	appCode := strings.TrimSpace(r.PathValue("app"))
+	if appCode == "" {
+		return 0, "", errors.New("empty app")
+	}
+	return userID, appCode, nil
+}
+
+func parseCurrentUserAccessPath(r *http.Request) (int64, string, error) {
+	userID, ok := currentUserID(r)
+	if !ok {
+		return 0, "", errors.New("empty user")
 	}
 	appCode := strings.TrimSpace(r.PathValue("app"))
 	if appCode == "" {

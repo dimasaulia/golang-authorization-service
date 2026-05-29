@@ -48,6 +48,24 @@ type UserAppAccess struct {
 	Name string `json:"name"`
 }
 
+type CurrentUserAccessResponse struct {
+	User           *entities.User              `json:"user"`
+	Providers      []CurrentUserProvider       `json:"providers"`
+	AppAccessCount int                         `json:"app_access_count"`
+	Apps           []AppPermissionCountSummary `json:"apps"`
+}
+
+type CurrentUserProvider struct {
+	Provider  string `json:"provider"`
+	IsPrimary bool   `json:"is_primary"`
+}
+
+type AppPermissionCountSummary struct {
+	Code            string `json:"code"`
+	Name            string `json:"name"`
+	PermissionCount int64  `json:"permission_count"`
+}
+
 type AccessCheckResponse struct {
 	Allowed    bool   `json:"allowed"`
 	App        string `json:"app"`

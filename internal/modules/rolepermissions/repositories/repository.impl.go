@@ -357,9 +357,7 @@ func (r *RolePermissionRepositoryImpl) detailBuilder(params shared.ListParams) s
 		Join("permissions p ON p.id = rp.permission_id").
 		LeftJoin("modules m ON m.id = p.module_id").
 		Join("apps a ON a.id = COALESCE(m.app_id, p.app_id)").
-		OrderBy("rp.id DESC").
-		Limit(params.Limit).
-		Offset(params.Offset)
+		OrderBy("rp.id DESC")
 
 	if params.Search != "" {
 		search := "%" + params.Search + "%"

@@ -16,6 +16,8 @@
   "auth.google_redirect.failed": "Gagal mengarahkan ke Google",
   "auth.google_callback.success": "Autentikasi Google berhasil",
   "auth.google_callback.failed": "Gagal menyelesaikan autentikasi Google",
+  "auth.current_user.success": "Informasi user saat ini berhasil diambil",
+  "auth.current_user.failed": "Gagal mengambil informasi user saat ini",
   "auth.access.apps.success": "Daftar app yang dapat diakses berhasil diambil",
   "auth.access.summary.success": "Ringkasan akses berhasil diambil",
   "auth.access.menus.success": "Daftar menu yang dapat diakses berhasil diambil",
