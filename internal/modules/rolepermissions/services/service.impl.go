@@ -2,6 +2,7 @@ package services
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 
@@ -9,17 +10,20 @@ import (
 	"github.com/open-suite/authorization/internal/modules/rolepermissions/dto"
 	"github.com/open-suite/authorization/internal/modules/rolepermissions/repositories"
 	"github.com/open-suite/authorization/internal/platform/logger"
+	"github.com/open-suite/authorization/internal/platform/redis"
 	"github.com/open-suite/authorization/internal/shared"
 )
 
 type RolePermissionServiceImpl struct {
 	RolePermissionRepository repositories.RolePermissionRepository
+	redis                    *redis.Redis
 	log                      *logger.LayerLogger
 }
 
-func NewRolePermissionService(repository repositories.RolePermissionRepository, appLogger *logger.Logger) RolePermissionService {
+func NewRolePermissionService(repository repositories.RolePermissionRepository, redisClient *redis.Redis, appLogger *logger.Logger) RolePermissionService {
 	return &RolePermissionServiceImpl{
 		RolePermissionRepository: repository,
+		redis:                    redisClient,
 		log:                      appLogger.Layer("service.role_permissions"),
 	}
 }
@@ -184,21 +188,41 @@ func (s *RolePermissionServiceImpl) UpdateByRole(ctx context.Context, roleUnique
 	}
 
 	effect := defaultEffect(request.Effect)
-	items := make([]entities.RolePermission, 0, len(request.PermissionIds))
-	seen := map[int64]struct{}{}
-	for _, permissionID := range request.PermissionIds {
-		if _, exists := seen[permissionID]; exists {
-			continue
+	appIDs := make([]int64, 0, len(request.Permissions))
+	items := make([]entities.RolePermission, 0)
+	seenApps := map[int64]struct{}{}
+	seenPermissions := map[int64]struct{}{}
+
+	for _, appPermissions := range request.Permissions {
+		if _, exists := seenApps[appPermissions.AppId]; !exists {
+			seenApps[appPermissions.AppId] = struct{}{}
+			appIDs = append(appIDs, appPermissions.AppId)
 		}
-		seen[permissionID] = struct{}{}
-		items = append(items, entities.RolePermission{
-			RoleId:       roleID,
-			PermissionId: permissionID,
-			Effect:       effect,
-		})
+
+		for _, permissionID := range appPermissions.PermissionIds {
+			if _, exists := seenPermissions[permissionID]; exists {
+				continue
+			}
+			seenPermissions[permissionID] = struct{}{}
+			items = append(items, entities.RolePermission{
+				RoleId:       roleID,
+				PermissionId: permissionID,
+				Effect:       effect,
+			})
+		}
 	}
 
-	updated, err := s.RolePermissionRepository.ReplaceByRole(ctx, roleID, items)
+	if len(appIDs) == 0 {
+		end(nil, "count", 0)
+		return []entities.RolePermission{}, nil
+	}
+
+	updated, err := s.RolePermissionRepository.ReplaceByRoleAndApps(ctx, roleID, appIDs, items)
+	if err == nil {
+		if resetErr := s.resetAccessCacheByRoleAndApps(ctx, roleID, appIDs); resetErr != nil {
+			s.log.Warn(ctx, "cache.reset_failed", "role_id", roleID, "error", resetErr.Error())
+		}
+	}
 	end(err, "count", len(updated))
 	return updated, err
 }
@@ -225,6 +249,41 @@ func (s *RolePermissionServiceImpl) resolveRoleID(ctx context.Context, roleUniqu
 	}
 
 	return s.RolePermissionRepository.FindRoleIDByCode(ctx, roleUnique)
+}
+
+func (s *RolePermissionServiceImpl) resetAccessCacheByRoleAndApps(ctx context.Context, roleID int64, appIDs []int64) error {
+	if s.redis == nil || s.redis.Client == nil {
+		return nil
+	}
+
+	userIDs, err := s.RolePermissionRepository.FindUserIDsByRoleID(ctx, roleID)
+	if err != nil {
+		return err
+	}
+	if len(userIDs) == 0 {
+		return nil
+	}
+
+	appCodes, err := s.RolePermissionRepository.FindAppCodesByIDs(ctx, appIDs)
+	if err != nil {
+		return err
+	}
+
+	keys := make([]string, 0, len(userIDs)*(len(appCodes)+2))
+	for _, userID := range userIDs {
+		keys = append(keys,
+			fmt.Sprintf("authz:apps:user:%d", userID),
+			fmt.Sprintf("authz:me:user:%d", userID),
+		)
+		for _, appCode := range appCodes {
+			keys = append(keys, fmt.Sprintf("authz:access:user:%d:app:%s", userID, strings.ToLower(strings.TrimSpace(appCode))))
+		}
+	}
+	if len(keys) == 0 {
+		return nil
+	}
+
+	return s.redis.Client.Del(ctx, keys...).Err()
 }
 
 func groupAvailablePermissions(rows []entities.AvailablePermissionRow) []entities.AvailablePermissionModule {

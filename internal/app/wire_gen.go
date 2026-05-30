@@ -181,7 +181,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	roleController := controllers11.NewRoleController(roleService, sender, logger)
 	roleModuleImpl := roles.NewRoleModule(roleController, configConfig, authenticator)
 	rolePermissionRepository := repositories12.NewRolePermissionRepository(databaseDatabase, logger)
-	rolePermissionService := services12.NewRolePermissionService(rolePermissionRepository, logger)
+	rolePermissionService := services12.NewRolePermissionService(rolePermissionRepository, redisRedis, logger)
 	rolePermissionController := controllers12.NewRolePermissionController(rolePermissionService, sender, logger)
 	rolePermissionModuleImpl := rolepermissions.NewRolePermissionModule(rolePermissionController, configConfig, authenticator)
 	userRoleRepository := repositories13.NewUserRoleRepository(databaseDatabase, logger)

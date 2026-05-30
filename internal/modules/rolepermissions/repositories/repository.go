@@ -13,6 +13,8 @@ type RolePermissionRepository interface {
 	FindByAppCode(ctx context.Context, appCode string, params shared.ListParams) ([]entities.RolePermissionDetail, error)
 	FindByRole(ctx context.Context, roleID int64, params shared.ListParams) ([]entities.RolePermissionDetail, error)
 	FindRoleIDByCode(ctx context.Context, roleCode string) (int64, error)
+	FindUserIDsByRoleID(ctx context.Context, roleID int64) ([]int64, error)
+	FindAppCodesByIDs(ctx context.Context, appIDs []int64) ([]string, error)
 	FindRoleSummaries(ctx context.Context, params shared.ListParams) ([]entities.RolePermissionSummary, error)
 	FindRoleSummariesByAppID(ctx context.Context, appID int64, params shared.ListParams) ([]entities.RolePermissionSummary, error)
 	FindRoleSummariesByAppCode(ctx context.Context, appCode string, params shared.ListParams) ([]entities.RolePermissionSummary, error)
@@ -22,6 +24,6 @@ type RolePermissionRepository interface {
 	Create(ctx context.Context, entity entities.RolePermission) (*entities.RolePermission, error)
 	CreateBulk(ctx context.Context, items []entities.RolePermission) ([]entities.RolePermission, error)
 	Update(ctx context.Context, id int64, data map[string]any) (*entities.RolePermission, error)
-	ReplaceByRole(ctx context.Context, roleID int64, items []entities.RolePermission) ([]entities.RolePermission, error)
+	ReplaceByRoleAndApps(ctx context.Context, roleID int64, appIDs []int64, items []entities.RolePermission) ([]entities.RolePermission, error)
 	Delete(ctx context.Context, id int64) error
 }

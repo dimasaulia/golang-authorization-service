@@ -94,6 +94,50 @@ func (r *RolePermissionRepositoryImpl) FindRoleIDByCode(ctx context.Context, rol
 	return roleID, nil
 }
 
+func (r *RolePermissionRepositoryImpl) FindUserIDsByRoleID(ctx context.Context, roleID int64) ([]int64, error) {
+	query, args, err := r.sb.Select("DISTINCT user_id").
+		From("user_roles").
+		Where(sq.Eq{"role_id": roleID}).
+		Where(sq.Or{
+			sq.Eq{"expires_at": nil},
+			sq.Expr("expires_at > NOW()"),
+		}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowTo[int64])
+}
+
+func (r *RolePermissionRepositoryImpl) FindAppCodesByIDs(ctx context.Context, appIDs []int64) ([]string, error) {
+	if len(appIDs) == 0 {
+		return []string{}, nil
+	}
+
+	query, args, err := r.sb.Select("code").
+		From("apps").
+		Where(sq.Eq{"id": appIDs}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowTo[string])
+}
+
 func (r *RolePermissionRepositoryImpl) FindRoleSummaries(ctx context.Context, params shared.ListParams) ([]entities.RolePermissionSummary, error) {
 	return r.findRoleSummaries(ctx, r.roleSummaryBuilder(params))
 }
@@ -260,7 +304,7 @@ func (r *RolePermissionRepositoryImpl) Update(ctx context.Context, id int64, dat
 	return &updated, nil
 }
 
-func (r *RolePermissionRepositoryImpl) ReplaceByRole(ctx context.Context, roleID int64, items []entities.RolePermission) ([]entities.RolePermission, error) {
+func (r *RolePermissionRepositoryImpl) ReplaceByRoleAndApps(ctx context.Context, roleID int64, appIDs []int64, items []entities.RolePermission) ([]entities.RolePermission, error) {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
 		return nil, err
@@ -271,6 +315,12 @@ func (r *RolePermissionRepositoryImpl) ReplaceByRole(ctx context.Context, roleID
 
 	deleteQuery, deleteArgs, err := r.sb.Delete(tableName).
 		Where(sq.Eq{"role_id": roleID}).
+		Where(sq.Expr(`permission_id IN (
+			SELECT p.id
+			FROM permissions p
+			LEFT JOIN modules m ON m.id = p.module_id
+			WHERE COALESCE(m.app_id, p.app_id) = ANY(?)
+		)`, appIDs)).
 		ToSql()
 	if err != nil {
 		return nil, err
