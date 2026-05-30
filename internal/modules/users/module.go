@@ -33,8 +33,11 @@ func (m *UserModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/users/signup/google", m.UserController.SignupWithGoogle)
 	mux.HandleFunc("GET /api/v1/users/verify-email", m.UserController.VerifyEmail)
 	mux.HandleFunc("POST /api/v1/users/verify-email", m.UserController.VerifyEmail)
+	mux.HandleFunc("POST /api/v1/users/password-setup", m.UserController.SetupPassword)
+	mux.HandleFunc("POST /api/v1/users/resend-verification-email", m.UserController.ResendVerificationEmail)
 	mux.Handle("GET /api/v1/users/{id}", m.protect(sharedpermissions.AuthorizationCenterUsersRead, m.UserController.FindByID))
 	mux.Handle("POST /api/v1/users", m.protect(sharedpermissions.AuthorizationCenterUsersWrite, m.UserController.Create))
+	mux.Handle("POST /api/v1/users/{id}/resend-invitation", m.protect(sharedpermissions.AuthorizationCenterUsersWrite, m.UserController.ResendInvitation))
 	mux.Handle("PUT /api/v1/users/{id}", m.protect(sharedpermissions.AuthorizationCenterUsersUpdate, m.UserController.Update))
 	mux.Handle("DELETE /api/v1/users/{id}", m.protect(sharedpermissions.AuthorizationCenterUsersDelete, m.UserController.Delete))
 }

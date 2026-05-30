@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/auth/dto"
 )
 
@@ -19,6 +20,7 @@ type AuthService interface {
 	GoogleRedirectURL(ctx context.Context, organizationID int64) (string, error)
 	HandleGoogleCallback(ctx context.Context, code string, state string) (*dto.GoogleCallbackResponse, string, error)
 	CurrentUserAccess(ctx context.Context, userID int64) (*dto.CurrentUserAccessResponse, error)
+	UpdateUser(ctx context.Context, userID int64, request dto.UpdateUserRequest) (*entities.User, error)
 	AccessSummary(ctx context.Context, userID int64, appCode string) (*dto.AccessSummaryResponse, error)
 	Apps(ctx context.Context, userID int64) (*dto.UserAppAccessResponse, error)
 	Menus(ctx context.Context, userID int64, appCode string) ([]dto.AccessibleMenu, error)

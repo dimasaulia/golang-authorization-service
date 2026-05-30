@@ -12,6 +12,7 @@ import (
 
 type Mailer interface {
 	Send(ctx context.Context, to string, subject string, body string) error
+	SendHTML(ctx context.Context, to string, subject string, textBody string, htmlBody string) error
 }
 
 type SMTPMailer struct {
@@ -27,6 +28,29 @@ func New(cfg config.Config, appLogger *logger.Logger) Mailer {
 }
 
 func (m *SMTPMailer) Send(ctx context.Context, to string, subject string, body string) error {
+	return m.send(ctx, to, subject, "text/plain; charset=UTF-8", body)
+}
+
+func (m *SMTPMailer) SendHTML(ctx context.Context, to string, subject string, textBody string, htmlBody string) error {
+	boundary := "open-suite-mail-boundary"
+	messageBody := strings.Join([]string{
+		"--" + boundary,
+		"Content-Type: text/plain; charset=UTF-8",
+		"Content-Transfer-Encoding: 8bit",
+		"",
+		textBody,
+		"--" + boundary,
+		"Content-Type: text/html; charset=UTF-8",
+		"Content-Transfer-Encoding: 8bit",
+		"",
+		htmlBody,
+		"--" + boundary + "--",
+	}, "\r\n")
+
+	return m.send(ctx, to, subject, "multipart/alternative; boundary="+boundary, messageBody)
+}
+
+func (m *SMTPMailer) send(ctx context.Context, to string, subject string, contentType string, body string) error {
 	if !m.cfg.Enabled {
 		m.log.Info(ctx, "send.skipped", "to", to, "subject", subject)
 		return nil
@@ -39,7 +63,7 @@ func (m *SMTPMailer) Send(ctx context.Context, to string, subject string, body s
 		"To: " + to,
 		"Subject: " + subject,
 		"MIME-Version: 1.0",
-		"Content-Type: text/plain; charset=UTF-8",
+		"Content-Type: " + contentType,
 		"",
 		body,
 	}, "\r\n")

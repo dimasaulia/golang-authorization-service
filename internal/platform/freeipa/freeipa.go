@@ -26,6 +26,7 @@ var (
 type Client interface {
 	Enabled() bool
 	CreateUser(ctx context.Context, input CreateUserInput) (string, error)
+	UpdateUser(ctx context.Context, uid string, input UpdateUserInput) (string, error)
 	DeleteUser(ctx context.Context, uid string) error
 }
 
@@ -36,6 +37,13 @@ type FreeIPA struct {
 }
 
 type CreateUserInput struct {
+	Username    string
+	Email       string
+	DisplayName string
+	Password    string
+}
+
+type UpdateUserInput struct {
 	Username    string
 	Email       string
 	DisplayName string
@@ -125,6 +133,61 @@ func (f *FreeIPA) CreateUser(ctx context.Context, input CreateUserInput) (string
 
 	end(nil, "uid", uid)
 	return uid, nil
+}
+
+func (f *FreeIPA) UpdateUser(ctx context.Context, uid string, input UpdateUserInput) (string, error) {
+	end := f.log.Start(ctx, "UpdateUser", "uid", uid)
+	if !f.cfg.Enabled {
+		end(ErrDisabled)
+		return "", ErrDisabled
+	}
+	uid = normalizeUID(uid)
+	if uid == "" {
+		end(nil)
+		return "", nil
+	}
+	if err := f.validateConfig(); err != nil {
+		end(err)
+		return "", err
+	}
+	if err := f.login(ctx); err != nil {
+		end(err)
+		return "", err
+	}
+
+	nextUID := uid
+	options := map[string]any{"version": "2.251"}
+	if strings.TrimSpace(input.Username) != "" {
+		nextUID = normalizeUID(input.Username)
+		if nextUID != "" && nextUID != uid {
+			options["rename"] = nextUID
+		}
+	}
+	if strings.TrimSpace(input.Email) != "" {
+		options["mail"] = strings.ToLower(strings.TrimSpace(input.Email))
+	}
+	if strings.TrimSpace(input.DisplayName) != "" {
+		givenName, surname := splitDisplayName(input.DisplayName)
+		options["givenname"] = givenName
+		options["sn"] = surname
+		options["cn"] = strings.TrimSpace(input.DisplayName)
+	}
+	if input.Password != "" {
+		options["userpassword"] = input.Password
+	}
+
+	if len(options) == 1 {
+		end(nil, "uid", uid)
+		return uid, nil
+	}
+
+	if err := f.rpc(ctx, "user_mod", []any{[]string{uid}, options}, nil); err != nil {
+		end(err)
+		return "", err
+	}
+
+	end(nil, "uid", nextUID)
+	return nextUID, nil
 }
 
 func (f *FreeIPA) DeleteUser(ctx context.Context, uid string) error {

@@ -31,6 +31,7 @@ import (
 	"github.com/open-suite/authorization/internal/platform/logger"
 	"github.com/open-suite/authorization/internal/platform/redis"
 	goredis "github.com/redis/go-redis/v9"
+	"golang.org/x/crypto/bcrypt"
 )
 
 const (
@@ -47,6 +48,7 @@ var (
 	ErrInvalidOAuthState        = errors.New("invalid oauth state")
 	ErrInvalidGoogleCallback    = errors.New("invalid google callback")
 	ErrInvalidKeycloakCallback  = errors.New("invalid keycloak callback")
+	ErrInvalidUpdateUserRequest = errors.New("invalid update user request")
 )
 
 type AuthServiceImpl struct {
@@ -418,6 +420,135 @@ func (s *AuthServiceImpl) CurrentUserAccess(ctx context.Context, userID int64) (
 	}
 	s.setCache(ctx, cacheKey, response)
 	return response, nil
+}
+
+func (s *AuthServiceImpl) UpdateUser(ctx context.Context, userID int64, request dto.UpdateUserRequest) (*entities.User, error) {
+	end := s.log.Start(ctx, "UpdateUser", "user_id", userID)
+	if userID == 0 {
+		end(ErrInvalidUpdateUserRequest)
+		return nil, ErrInvalidUpdateUserRequest
+	}
+
+	user, err := s.userRepository.FindByID(ctx, userID)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	nextUsername := user.Username
+	nextEmail := user.Email
+	nextDisplayName := user.DisplayName
+	data := map[string]any{}
+	if request.Username != nil {
+		nextUsername = strings.TrimSpace(*request.Username)
+		if nextUsername == "" {
+			end(ErrInvalidUpdateUserRequest)
+			return nil, ErrInvalidUpdateUserRequest
+		}
+		data["username"] = nextUsername
+	}
+	if request.Email != nil {
+		nextEmail = strings.ToLower(strings.TrimSpace(*request.Email))
+		if nextEmail == "" {
+			end(ErrInvalidUpdateUserRequest)
+			return nil, ErrInvalidUpdateUserRequest
+		}
+		data["email"] = nextEmail
+	}
+	if request.DisplayName != nil {
+		nextDisplayName = strings.TrimSpace(*request.DisplayName)
+		if nextDisplayName == "" {
+			end(ErrInvalidUpdateUserRequest)
+			return nil, ErrInvalidUpdateUserRequest
+		}
+		data["display_name"] = nextDisplayName
+	}
+
+	password := ""
+	passwordHash := ""
+	if request.Password != nil {
+		password = strings.TrimSpace(*request.Password)
+		if password == "" {
+			end(ErrInvalidUpdateUserRequest)
+			return nil, ErrInvalidUpdateUserRequest
+		}
+		hash, err := bcrypt.GenerateFromPassword([]byte(password), bcrypt.DefaultCost)
+		if err != nil {
+			end(err)
+			return nil, err
+		}
+		passwordHash = string(hash)
+	}
+	if len(data) == 0 && password == "" {
+		end(ErrInvalidUpdateUserRequest)
+		return nil, ErrInvalidUpdateUserRequest
+	}
+
+	identities, err := s.userRepository.FindIdentitiesByUserID(ctx, userID)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+	updatedProviderIDs := map[string]string{}
+	for _, identity := range identities {
+		switch identity.Provider {
+		case keycloakProvider:
+			if s.keycloak.Enabled() {
+				if err := s.keycloak.UpdateUser(ctx, identity.ProviderUserId, keycloak.UpdateUserInput{
+					Username:    nextUsername,
+					Email:       nextEmail,
+					DisplayName: nextDisplayName,
+					Password:    password,
+				}); err != nil {
+					end(err, "provider", keycloakProvider)
+					return nil, err
+				}
+			}
+		case freeIPAProvider:
+			if s.freeipa.Enabled() {
+				uid, err := s.freeipa.UpdateUser(ctx, identity.ProviderUserId, freeipa.UpdateUserInput{
+					Username:    nextUsername,
+					Email:       nextEmail,
+					DisplayName: nextDisplayName,
+					Password:    password,
+				})
+				if err != nil {
+					end(err, "provider", freeIPAProvider)
+					return nil, err
+				}
+				if uid != "" {
+					updatedProviderIDs[freeIPAProvider] = uid
+				}
+			}
+		}
+	}
+
+	updated, err := s.userRepository.Update(ctx, userID, data)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+	if passwordHash != "" {
+		if err := s.userRepository.UpdateCredential(ctx, userID, passwordHash, false); err != nil {
+			end(err)
+			return nil, err
+		}
+	}
+	for _, identity := range identities {
+		providerUserID := identity.ProviderUserId
+		if value := updatedProviderIDs[identity.Provider]; value != "" {
+			providerUserID = value
+		}
+		if err := s.userRepository.UpdateIdentityProfile(ctx, userID, identity.Provider, providerUserID, nextUsername, nextEmail); err != nil {
+			end(err, "provider", identity.Provider)
+			return nil, err
+		}
+	}
+
+	s.deleteCache(ctx, currentUserAccessCacheKey(userID))
+	s.deleteCache(ctx, appsCacheKey(userID))
+	end(nil)
+	return updated, nil
 }
 
 func (s *AuthServiceImpl) AccessSummary(ctx context.Context, userID int64, appCode string) (*dto.AccessSummaryResponse, error) {
@@ -1079,6 +1210,12 @@ func (s *AuthServiceImpl) setCache(ctx context.Context, key string, value any) {
 	}
 	if err := s.redis.Client.Set(ctx, key, raw, s.cfg.Authz.CacheTTL).Err(); err != nil {
 		s.log.Warn(ctx, "cache.set_failed", "key", key, "error", err.Error())
+	}
+}
+
+func (s *AuthServiceImpl) deleteCache(ctx context.Context, key string) {
+	if err := s.redis.Client.Del(ctx, key).Err(); err != nil {
+		s.log.Warn(ctx, "cache.delete_failed", "key", key, "error", err.Error())
 	}
 }
 

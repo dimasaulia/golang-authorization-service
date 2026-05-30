@@ -32,6 +32,7 @@ type Client interface {
 	Refresh(ctx context.Context, input RefreshInput) (*TokenSet, error)
 	Logout(ctx context.Context, input LogoutInput) error
 	CreateUser(ctx context.Context, input CreateUserInput) (string, error)
+	UpdateUser(ctx context.Context, userID string, input UpdateUserInput) error
 	DeleteUser(ctx context.Context, userID string) error
 }
 
@@ -50,6 +51,13 @@ type CreateUserInput struct {
 	Password            string
 	TemporaryPassword   bool
 	FederatedIdentities []FederatedIdentity
+}
+
+type UpdateUserInput struct {
+	Username    string
+	Email       string
+	DisplayName string
+	Password    string
 }
 
 type FederatedIdentity struct {
@@ -387,6 +395,102 @@ func (k *Keycloak) CreateUser(ctx context.Context, input CreateUserInput) (strin
 
 	end(nil, "user_id", userID)
 	return userID, nil
+}
+
+func (k *Keycloak) UpdateUser(ctx context.Context, userID string, input UpdateUserInput) error {
+	end := k.log.Start(ctx, "UpdateUser", "user_id", userID)
+
+	// Disable keycloak
+	end(ErrDisabled)
+	return nil
+
+	if !k.cfg.Enabled {
+		end(ErrDisabled)
+		return ErrDisabled
+	}
+	if strings.TrimSpace(userID) == "" {
+		end(nil)
+		return nil
+	}
+	if err := k.validateConfig(); err != nil {
+		end(err)
+		return err
+	}
+
+	token, err := k.adminToken(ctx)
+	if err != nil {
+		end(err)
+		return err
+	}
+
+	body := map[string]any{}
+	if strings.TrimSpace(input.Username) != "" {
+		body["username"] = strings.TrimSpace(input.Username)
+	}
+	if strings.TrimSpace(input.Email) != "" {
+		body["email"] = strings.ToLower(strings.TrimSpace(input.Email))
+	}
+
+	if len(body) > 0 {
+		payload, err := json.Marshal(body)
+		if err != nil {
+			end(err)
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, k.adminURL("/users/"+url.PathEscape(userID)), bytes.NewReader(payload))
+		if err != nil {
+			end(err)
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := k.httpClient.Do(req)
+		if err != nil {
+			end(err)
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			err := responseError("update keycloak user failed", resp)
+			end(err)
+			return err
+		}
+	}
+
+	if input.Password != "" {
+		payload, err := json.Marshal(credentialRepresentation{
+			Type:      passwordCredentialType,
+			Value:     input.Password,
+			Temporary: false,
+		})
+		if err != nil {
+			end(err)
+			return err
+		}
+		req, err := http.NewRequestWithContext(ctx, http.MethodPut, k.adminURL("/users/"+url.PathEscape(userID)+"/reset-password"), bytes.NewReader(payload))
+		if err != nil {
+			end(err)
+			return err
+		}
+		req.Header.Set("Authorization", "Bearer "+token)
+		req.Header.Set("Content-Type", "application/json")
+
+		resp, err := k.httpClient.Do(req)
+		if err != nil {
+			end(err)
+			return err
+		}
+		defer resp.Body.Close()
+		if resp.StatusCode != http.StatusNoContent {
+			err := responseError("reset keycloak password failed", resp)
+			end(err)
+			return err
+		}
+	}
+
+	end(nil)
+	return nil
 }
 
 func (k *Keycloak) DeleteUser(ctx context.Context, userID string) error {

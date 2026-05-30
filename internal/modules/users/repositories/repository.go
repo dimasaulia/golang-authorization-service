@@ -27,10 +27,14 @@ type UserRepository interface {
 	FindByID(ctx context.Context, id int64) (*entities.User, error)
 	FindByEmail(ctx context.Context, email string) (*entities.User, error)
 	FindByIdentity(ctx context.Context, provider string, providerUserID string) (*entities.User, error)
+	FindIdentitiesByUserID(ctx context.Context, userID int64) ([]entities.UserIdentity, error)
 	Create(ctx context.Context, input CreateUserInput) (*entities.User, error)
 	LinkIdentity(ctx context.Context, identity entities.UserIdentity) error
+	UpdateCredential(ctx context.Context, userID int64, passwordHash string, mustChangePassword bool) error
+	UpdateIdentityProfile(ctx context.Context, userID int64, provider string, providerUserID string, username string, email string) error
 	Update(ctx context.Context, id int64, data map[string]any) (*entities.User, error)
 	Delete(ctx context.Context, id int64) error
+	CreateVerificationCode(ctx context.Context, userID int64, input CreateVerificationCodeInput) error
 	FindVerificationCode(ctx context.Context, purpose string, codeHash string) (*entities.UserVerificationCode, error)
 	UseVerificationCode(ctx context.Context, codeID int64) error
 	MarkEmailVerified(ctx context.Context, userID int64) error

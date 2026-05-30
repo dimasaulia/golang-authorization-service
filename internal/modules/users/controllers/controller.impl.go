@@ -3,6 +3,7 @@ package controllers
 import (
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"strconv"
 
@@ -153,6 +154,78 @@ func (c *UserControllerImpl) VerifyEmail(w http.ResponseWriter, r *http.Request)
 
 	end(nil)
 	c.response.Success(w, r, http.StatusOK, "users.verify_email.success", nil)
+}
+
+func (c *UserControllerImpl) SetupPassword(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "SetupPassword")
+
+	request := dto.SetupPasswordRequest{Code: r.URL.Query().Get("code")}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.invalid_payload", nil)
+		return
+	}
+
+	if err := c.UserService.SetupPassword(r.Context(), request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.setup_password.failed", nil)
+		return
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "users.setup_password.success", nil)
+}
+
+func (c *UserControllerImpl) ResendVerificationEmail(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "ResendVerificationEmail")
+
+	var request dto.ResendVerificationEmailRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.invalid_payload", nil)
+		return
+	}
+
+	if err := c.UserService.ResendVerificationEmail(r.Context(), request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.resend_verification_email.failed", nil)
+		return
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "users.resend_verification_email.success", nil)
+}
+
+func (c *UserControllerImpl) ResendInvitation(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "ResendInvitation")
+
+	id, err := parseID(r)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.invalid_id", nil)
+		return
+	}
+
+	request := dto.ResendInvitationRequest{SetupPasswordURL: r.URL.Query().Get("setup_password_url")}
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil && !errors.Is(err, io.EOF) {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.invalid_payload", nil)
+		return
+	}
+
+	if err := c.UserService.ResendInvitation(r.Context(), id, request); err != nil {
+		if errors.Is(err, repositories.ErrNotFound) {
+			end(err)
+			c.response.Error(w, r, http.StatusNotFound, "users.not_found", nil)
+			return
+		}
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "users.resend_invitation.failed", nil)
+		return
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "users.resend_invitation.success", nil)
 }
 
 func (c *UserControllerImpl) Update(w http.ResponseWriter, r *http.Request) {

@@ -281,6 +281,27 @@ func (c *AuthControllerImpl) CurrentUser(w http.ResponseWriter, r *http.Request)
 	c.response.Success(w, r, http.StatusOK, "auth.current_user.success", result)
 }
 
+func (c *AuthControllerImpl) UpdateCurrentUser(w http.ResponseWriter, r *http.Request) {
+	userID, ok := currentUserID(r)
+	if !ok {
+		c.response.Error(w, r, http.StatusUnauthorized, "auth.unauthorized", nil)
+		return
+	}
+
+	var request dto.UpdateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.update_user.invalid_payload", nil)
+		return
+	}
+
+	result, err := c.AuthService.UpdateUser(r.Context(), userID, request)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.update_user.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.update_user.success", result)
+}
+
 func (c *AuthControllerImpl) CurrentUserApps(w http.ResponseWriter, r *http.Request) {
 	userID, ok := currentUserID(r)
 	if !ok {
@@ -368,6 +389,27 @@ func (c *AuthControllerImpl) CurrentUserAccessToken(w http.ResponseWriter, r *ht
 		return
 	}
 	c.response.Success(w, r, http.StatusOK, "auth.access.token.success", result)
+}
+
+func (c *AuthControllerImpl) UpdateUser(w http.ResponseWriter, r *http.Request) {
+	userID, err := parseUserID(r)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.update_user.invalid_payload", nil)
+		return
+	}
+
+	var request dto.UpdateUserRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.update_user.invalid_payload", nil)
+		return
+	}
+
+	result, err := c.AuthService.UpdateUser(r.Context(), userID, request)
+	if err != nil {
+		c.response.Error(w, r, http.StatusBadRequest, "auth.update_user.failed", nil)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.update_user.success", result)
 }
 
 func (c *AuthControllerImpl) UserApps(w http.ResponseWriter, r *http.Request) {

@@ -18,3 +18,10 @@ type LogoutRequest struct {
 type KeycloakExchangeRequest struct {
 	Code string `json:"code"`
 }
+
+type UpdateUserRequest struct {
+	Username    *string `json:"username"`
+	Email       *string `json:"email"`
+	DisplayName *string `json:"display_name"`
+	Password    *string `json:"password"`
+}

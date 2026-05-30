@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"strings"
 	"time"
 
 	sq "github.com/Masterminds/squirrel"
@@ -143,6 +144,25 @@ func (r *UserRepositoryImpl) FindByIdentity(ctx context.Context, provider string
 	return &item, nil
 }
 
+func (r *UserRepositoryImpl) FindIdentitiesByUserID(ctx context.Context, userID int64) ([]entities.UserIdentity, error) {
+	query, args, err := r.sb.Select(identityColumns()...).
+		From(userIdentitiesTableName).
+		Where(sq.Eq{"user_id": userID}).
+		OrderBy("is_primary DESC", "provider ASC").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.UserIdentity])
+}
+
 func (r *UserRepositoryImpl) Create(ctx context.Context, input CreateUserInput) (*entities.User, error) {
 	tx, err := r.db.Pool.Begin(ctx)
 	if err != nil {
@@ -209,6 +229,55 @@ func (r *UserRepositoryImpl) LinkIdentity(ctx context.Context, identity entities
 	return r.createIdentity(ctx, r.db.Pool, identity)
 }
 
+func (r *UserRepositoryImpl) UpdateCredential(ctx context.Context, userID int64, passwordHash string, mustChangePassword bool) error {
+	if passwordHash == "" {
+		return nil
+	}
+
+	query, args, err := r.sb.Insert(userCredentialsTableName).
+		SetMap(map[string]any{
+			"user_id":              userID,
+			"password_hash":        passwordHash,
+			"must_change_password": mustChangePassword,
+			"password_changed_at":  time.Now(),
+		}).
+		Suffix("ON CONFLICT (user_id) DO UPDATE SET password_hash = EXCLUDED.password_hash, must_change_password = EXCLUDED.must_change_password, password_changed_at = EXCLUDED.password_changed_at, updated_at = NOW()").
+		ToSql()
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.Pool.Exec(ctx, query, args...)
+	return err
+}
+
+func (r *UserRepositoryImpl) UpdateIdentityProfile(ctx context.Context, userID int64, provider string, providerUserID string, username string, email string) error {
+	data := map[string]any{}
+	if strings.TrimSpace(providerUserID) != "" {
+		data["provider_user_id"] = providerUserID
+	}
+	if strings.TrimSpace(username) != "" {
+		data["username"] = username
+	}
+	if strings.TrimSpace(email) != "" {
+		data["email"] = email
+	}
+	if len(data) == 0 {
+		return nil
+	}
+
+	query, args, err := r.sb.Update(userIdentitiesTableName).
+		SetMap(data).
+		Where(sq.Eq{"user_id": userID, "provider": provider}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.Pool.Exec(ctx, query, args...)
+	return err
+}
+
 func (r *UserRepositoryImpl) Update(ctx context.Context, id int64, data map[string]any) (*entities.User, error) {
 	if len(data) == 0 {
 		return r.FindByID(ctx, id)
@@ -261,6 +330,32 @@ func (r *UserRepositoryImpl) Delete(ctx context.Context, id int64) error {
 	}
 
 	return nil
+}
+
+func (r *UserRepositoryImpl) CreateVerificationCode(ctx context.Context, userID int64, input CreateVerificationCodeInput) error {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback(ctx)
+
+	query, args, err := r.sb.Update(userVerificationCodesTableName).
+		Set("used_at", time.Now()).
+		Where(sq.Eq{"user_id": userID, "purpose": input.Purpose}).
+		Where(sq.Eq{"used_at": nil}).
+		ToSql()
+	if err != nil {
+		return err
+	}
+	if _, err := tx.Exec(ctx, query, args...); err != nil {
+		return err
+	}
+
+	if err := r.createVerificationCode(ctx, tx, userID, input); err != nil {
+		return err
+	}
+
+	return tx.Commit(ctx)
 }
 
 func (r *UserRepositoryImpl) FindVerificationCode(ctx context.Context, purpose string, codeHash string) (*entities.UserVerificationCode, error) {
@@ -419,6 +514,19 @@ func columns() []string {
 
 func columnList() string {
 	return "id, organization_id, username, email, display_name, type, status, email_verified_at, created_at, updated_at"
+}
+
+func identityColumns() []string {
+	return []string{
+		"id",
+		"user_id",
+		"provider",
+		"provider_user_id",
+		"username",
+		"email",
+		"is_primary",
+		"created_at",
+	}
 }
 
 func canUpdateTimestamp() bool {
