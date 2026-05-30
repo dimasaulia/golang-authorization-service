@@ -275,6 +275,10 @@ func (c *AuthControllerImpl) CurrentUser(w http.ResponseWriter, r *http.Request)
 	}
 	result, err := c.AuthService.CurrentUserAccess(r.Context(), userID)
 	if err != nil {
+		if errors.Is(err, services.ErrInvalidSession) {
+			c.response.Error(w, r, http.StatusUnauthorized, "auth.unauthorized", nil)
+			return
+		}
 		c.response.Error(w, r, http.StatusInternalServerError, "auth.current_user.failed", nil)
 		return
 	}

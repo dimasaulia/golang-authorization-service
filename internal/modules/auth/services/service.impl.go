@@ -49,6 +49,7 @@ var (
 	ErrInvalidGoogleCallback    = errors.New("invalid google callback")
 	ErrInvalidKeycloakCallback  = errors.New("invalid keycloak callback")
 	ErrInvalidUpdateUserRequest = errors.New("invalid update user request")
+	ErrInvalidSession           = errors.New("invalid session")
 )
 
 type AuthServiceImpl struct {
@@ -397,6 +398,9 @@ func (s *AuthServiceImpl) CurrentUserAccess(ctx context.Context, userID int64) (
 
 	user, err := s.userRepository.FindByID(ctx, userID)
 	if err != nil {
+		if errors.Is(err, userRepositories.ErrNotFound) {
+			return nil, ErrInvalidSession
+		}
 		return nil, err
 	}
 	providers, err := s.accessRepository.FindUserProviders(ctx, userID)
