@@ -12,6 +12,10 @@ type AuthService interface {
 	Login(ctx context.Context, request dto.LoginRequest) (*dto.SessionResponse, error)
 	Refresh(ctx context.Context, request dto.RefreshRequest) (*dto.SessionResponse, error)
 	Logout(ctx context.Context, request dto.LogoutRequest) error
+	KeycloakRedirectURL(ctx context.Context, callbackURL string, prompt string) (string, error)
+	HandleKeycloakCallback(ctx context.Context, code string, state string) (*dto.SessionResponse, string, error)
+	HandleKeycloakErrorCallback(ctx context.Context, state string, reason string) (string, error)
+	ExchangeKeycloakCallbackCode(ctx context.Context, code string) (*dto.SessionResponse, error)
 	GoogleRedirectURL(ctx context.Context, organizationID int64) (string, error)
 	HandleGoogleCallback(ctx context.Context, code string, state string) (*dto.GoogleCallbackResponse, string, error)
 	CurrentUserAccess(ctx context.Context, userID int64) (*dto.CurrentUserAccessResponse, error)

@@ -26,6 +26,8 @@ var (
 type Client interface {
 	Enabled() bool
 	JWKS(ctx context.Context) (json.RawMessage, error)
+	AuthorizationCodeURL(input AuthorizationCodeInput) (string, error)
+	ExchangeCode(ctx context.Context, input CodeInput) (*TokenSet, error)
 	Login(ctx context.Context, input LoginInput) (*TokenSet, error)
 	Refresh(ctx context.Context, input RefreshInput) (*TokenSet, error)
 	Logout(ctx context.Context, input LogoutInput) error
@@ -60,6 +62,17 @@ type LoginInput struct {
 	Username string
 	Password string
 	Scope    string
+}
+
+type AuthorizationCodeInput struct {
+	State       string
+	RedirectURL string
+	Prompt      string
+}
+
+type CodeInput struct {
+	Code        string
+	RedirectURL string
 }
 
 type RefreshInput struct {
@@ -157,6 +170,56 @@ func (k *Keycloak) JWKS(ctx context.Context) (json.RawMessage, error) {
 
 	end(nil)
 	return json.RawMessage(body), nil
+}
+
+func (k *Keycloak) AuthorizationCodeURL(input AuthorizationCodeInput) (string, error) {
+	if !k.cfg.Enabled {
+		return "", ErrDisabled
+	}
+	if err := k.validateLoginConfig(); err != nil {
+		return "", err
+	}
+	redirectURL := valueOrDefault(input.RedirectURL, k.cfg.RedirectURL)
+	if redirectURL == "" {
+		return "", ErrNotConfigured
+	}
+
+	values := url.Values{}
+	values.Set("client_id", k.cfg.LoginClientID)
+	values.Set("redirect_uri", redirectURL)
+	values.Set("response_type", "code")
+	values.Set("scope", "openid profile email")
+	values.Set("state", strings.TrimSpace(input.State))
+	if strings.TrimSpace(input.Prompt) != "" {
+		values.Set("prompt", strings.TrimSpace(input.Prompt))
+	}
+	return k.realmURL("/protocol/openid-connect/auth") + "?" + values.Encode(), nil
+}
+
+func (k *Keycloak) ExchangeCode(ctx context.Context, input CodeInput) (*TokenSet, error) {
+	end := k.log.Start(ctx, "ExchangeCode")
+	if !k.cfg.Enabled {
+		end(ErrDisabled)
+		return nil, ErrDisabled
+	}
+	if err := k.validateLoginConfig(); err != nil {
+		end(err)
+		return nil, err
+	}
+	redirectURL := valueOrDefault(input.RedirectURL, k.cfg.RedirectURL)
+	if redirectURL == "" {
+		end(ErrNotConfigured)
+		return nil, ErrNotConfigured
+	}
+
+	values := k.loginClientValues()
+	values.Set("grant_type", "authorization_code")
+	values.Set("code", strings.TrimSpace(input.Code))
+	values.Set("redirect_uri", redirectURL)
+
+	token, err := k.tokenRequest(ctx, values)
+	end(err)
+	return token, err
 }
 
 func (k *Keycloak) Login(ctx context.Context, input LoginInput) (*TokenSet, error) {

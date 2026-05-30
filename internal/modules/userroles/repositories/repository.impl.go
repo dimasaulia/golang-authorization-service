@@ -79,6 +79,33 @@ func (r *UserRoleRepositoryImpl) FindByID(ctx context.Context, id int64) (*entit
 	return &item, nil
 }
 
+func (r *UserRoleRepositoryImpl) FindByUserAndRole(ctx context.Context, userID int64, roleID int64) (*entities.UserRole, error) {
+	query, args, err := r.sb.Select(columns()...).
+		From(tableName).
+		Where(sq.Eq{"user_id": userID, "role_id": roleID}).
+		Limit(1).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.UserRole])
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+
+	return &item, nil
+}
+
 func (r *UserRoleRepositoryImpl) Create(ctx context.Context, entity entities.UserRole) (*entities.UserRole, error) {
 	values := map[string]any{
 		"user_id":         entity.UserId,

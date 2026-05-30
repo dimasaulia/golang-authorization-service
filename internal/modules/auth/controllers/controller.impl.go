@@ -127,6 +127,93 @@ func (c *AuthControllerImpl) Logout(w http.ResponseWriter, r *http.Request) {
 	c.response.Success(w, r, http.StatusOK, "auth.logout.success", nil)
 }
 
+func (c *AuthControllerImpl) KeycloakRedirect(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "KeycloakRedirect")
+
+	redirectURL, err := c.AuthService.KeycloakRedirectURL(
+		r.Context(),
+		keycloakAppCallbackURL(r),
+		strings.TrimSpace(r.URL.Query().Get("prompt")),
+	)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "auth.keycloak_redirect.failed", nil)
+		return
+	}
+
+	end(nil)
+	http.Redirect(w, r, redirectURL, http.StatusFound)
+}
+
+func (c *AuthControllerImpl) KeycloakCallback(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "KeycloakCallback")
+
+	if oauthErr := r.URL.Query().Get("error"); oauthErr != "" {
+		end(nil, "oauth_error", oauthErr)
+		redirectURL, err := c.AuthService.HandleKeycloakErrorCallback(r.Context(), r.URL.Query().Get("state"), oauthErr)
+		if err != nil {
+			end(err)
+		}
+		if redirectURL != "" {
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
+		}
+		c.response.Error(w, r, http.StatusBadRequest, "auth.keycloak_callback.failed", map[string]string{"error": oauthErr})
+		return
+	}
+
+	result, redirectURL, err := c.AuthService.HandleKeycloakCallback(
+		r.Context(),
+		r.URL.Query().Get("code"),
+		r.URL.Query().Get("state"),
+	)
+	if err != nil {
+		end(err)
+		if redirectURL != "" {
+			http.Redirect(w, r, redirectURL, http.StatusFound)
+			return
+		}
+		c.response.Error(w, r, http.StatusBadRequest, "auth.keycloak_callback.failed", nil)
+		return
+	}
+
+	end(nil)
+	if redirectURL != "" {
+		http.Redirect(w, r, redirectURL, http.StatusFound)
+		return
+	}
+	c.response.Success(w, r, http.StatusOK, "auth.keycloak_callback.success", result)
+}
+
+func (c *AuthControllerImpl) KeycloakExchange(w http.ResponseWriter, r *http.Request) {
+	end := c.log.Start(r.Context(), "KeycloakExchange")
+
+	var request dto.KeycloakExchangeRequest
+	if err := json.NewDecoder(r.Body).Decode(&request); err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusBadRequest, "auth.keycloak_exchange.invalid_payload", nil)
+		return
+	}
+
+	result, err := c.AuthService.ExchangeKeycloakCallbackCode(r.Context(), request.Code)
+	if err != nil {
+		end(err)
+		c.response.Error(w, r, http.StatusUnauthorized, "auth.keycloak_exchange.failed", nil)
+		return
+	}
+
+	end(nil)
+	c.response.Success(w, r, http.StatusOK, "auth.keycloak_exchange.success", result)
+}
+
+func keycloakAppCallbackURL(r *http.Request) string {
+	callbackURL := strings.TrimSpace(r.URL.Query().Get("callback_url"))
+	if callbackURL == "" {
+		callbackURL = strings.TrimSpace(r.URL.Query().Get("callback"))
+	}
+	return callbackURL
+}
+
 func (c *AuthControllerImpl) GoogleRedirect(w http.ResponseWriter, r *http.Request) {
 	end := c.log.Start(r.Context(), "GoogleRedirect")
 

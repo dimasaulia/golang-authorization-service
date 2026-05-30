@@ -14,3 +14,7 @@ type RefreshRequest struct {
 type LogoutRequest struct {
 	RefreshToken string `json:"refresh_token"`
 }
+
+type KeycloakExchangeRequest struct {
+	Code string `json:"code"`
+}

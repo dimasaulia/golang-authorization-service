@@ -18,9 +18,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/golang-jwt/jwt/v4"
 	"github.com/open-suite/authorization/internal/entities"
 	"github.com/open-suite/authorization/internal/modules/auth/dto"
 	"github.com/open-suite/authorization/internal/modules/auth/repositories"
+	roleRepositories "github.com/open-suite/authorization/internal/modules/roles/repositories"
+	userRoleRepositories "github.com/open-suite/authorization/internal/modules/userroles/repositories"
 	userRepositories "github.com/open-suite/authorization/internal/modules/users/repositories"
 	"github.com/open-suite/authorization/internal/platform/config"
 	"github.com/open-suite/authorization/internal/platform/freeipa"
@@ -35,6 +38,7 @@ const (
 	googleTokenURL     = "https://oauth2.googleapis.com/token"
 	googleUserInfoURL  = "https://openidconnect.googleapis.com/v1/userinfo"
 	googleProvider     = "google"
+	keycloakProvider   = "keycloak"
 	freeIPAProvider    = "freeipa"
 )
 
@@ -42,21 +46,40 @@ var (
 	ErrGoogleOAuthNotConfigured = errors.New("google oauth is not configured")
 	ErrInvalidOAuthState        = errors.New("invalid oauth state")
 	ErrInvalidGoogleCallback    = errors.New("invalid google callback")
+	ErrInvalidKeycloakCallback  = errors.New("invalid keycloak callback")
 )
 
 type AuthServiceImpl struct {
-	cfg              config.Config
-	redis            *redis.Redis
-	userRepository   userRepositories.UserRepository
-	accessRepository repositories.AccessRepository
-	keycloak         keycloak.Client
-	freeipa          freeipa.Client
-	log              *logger.LayerLogger
-	httpClient       *http.Client
+	cfg                config.Config
+	redis              *redis.Redis
+	userRepository     userRepositories.UserRepository
+	accessRepository   repositories.AccessRepository
+	roleRepository     roleRepositories.RoleRepository
+	userRoleRepository userRoleRepositories.UserRoleRepository
+	keycloak           keycloak.Client
+	freeipa            freeipa.Client
+	log                *logger.LayerLogger
+	httpClient         *http.Client
 }
 
 type googleState struct {
 	OrganizationID int64 `json:"organization_id"`
+}
+
+type keycloakState struct {
+	RedirectURL string `json:"redirect_url"`
+	CallbackURL string `json:"callback_url,omitempty"`
+}
+
+type keycloakClaims struct {
+	Subject           string `json:"sub"`
+	PreferredUsername string `json:"preferred_username"`
+	Email             string `json:"email"`
+	EmailVerified     bool   `json:"email_verified"`
+	Name              string `json:"name"`
+	GivenName         string `json:"given_name"`
+	FamilyName        string `json:"family_name"`
+	jwt.RegisteredClaims
 }
 
 type googleTokenResponse struct {
@@ -66,16 +89,18 @@ type googleTokenResponse struct {
 	IDToken     string `json:"id_token"`
 }
 
-func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, accessRepository repositories.AccessRepository, keycloakClient keycloak.Client, freeIPAClient freeipa.Client, appLogger *logger.Logger) AuthService {
+func NewAuthService(cfg config.Config, redisClient *redis.Redis, userRepository userRepositories.UserRepository, accessRepository repositories.AccessRepository, roleRepository roleRepositories.RoleRepository, userRoleRepository userRoleRepositories.UserRoleRepository, keycloakClient keycloak.Client, freeIPAClient freeipa.Client, appLogger *logger.Logger) AuthService {
 	return &AuthServiceImpl{
-		cfg:              cfg,
-		redis:            redisClient,
-		userRepository:   userRepository,
-		accessRepository: accessRepository,
-		keycloak:         keycloakClient,
-		freeipa:          freeIPAClient,
-		log:              appLogger.Layer("service.auth"),
-		httpClient:       &http.Client{Timeout: 15 * time.Second},
+		cfg:                cfg,
+		redis:              redisClient,
+		userRepository:     userRepository,
+		accessRepository:   accessRepository,
+		roleRepository:     roleRepository,
+		userRoleRepository: userRoleRepository,
+		keycloak:           keycloakClient,
+		freeipa:            freeIPAClient,
+		log:                appLogger.Layer("service.auth"),
+		httpClient:         &http.Client{Timeout: 15 * time.Second},
 	}
 }
 
@@ -122,6 +147,149 @@ func (s *AuthServiceImpl) Logout(ctx context.Context, request dto.LogoutRequest)
 	})
 	end(err)
 	return err
+}
+
+func (s *AuthServiceImpl) KeycloakRedirectURL(ctx context.Context, callbackURL string, prompt string) (string, error) {
+	end := s.log.Start(ctx, "KeycloakRedirectURL")
+	callbackURL = strings.TrimSpace(callbackURL)
+	if callbackURL != "" {
+		if err := validateCallbackURL(callbackURL); err != nil {
+			end(err)
+			return "", err
+		}
+	}
+
+	state := newStateToken()
+	redirectURL := s.keycloakRedirectURL()
+	payload, err := json.Marshal(keycloakState{
+		RedirectURL: redirectURL,
+		CallbackURL: callbackURL,
+	})
+	if err != nil {
+		end(err)
+		return "", err
+	}
+	if err := s.redis.Client.Set(ctx, keycloakStateKey(state), payload, 10*time.Minute).Err(); err != nil {
+		end(err)
+		return "", err
+	}
+
+	result, err := s.keycloak.AuthorizationCodeURL(keycloak.AuthorizationCodeInput{
+		State:       state,
+		RedirectURL: redirectURL,
+		Prompt:      prompt,
+	})
+	if err != nil {
+		println("KEYCLOAK REDIRECT SERVICE BUILD AUTH URL FAILED")
+	} else {
+		println("KEYCLOAK REDIRECT SERVICE KEYCLOAK AUTH URL:", result)
+	}
+	end(err, "callback_url", callbackURL, "state", state, "redirect_url", redirectURL)
+	return result, err
+}
+
+func (s *AuthServiceImpl) HandleKeycloakCallback(ctx context.Context, code string, state string) (*dto.SessionResponse, string, error) {
+	end := s.log.Start(ctx, "HandleKeycloakCallback")
+	code = strings.TrimSpace(code)
+	state = strings.TrimSpace(state)
+	if code == "" || state == "" {
+		end(ErrInvalidKeycloakCallback)
+		return nil, s.keycloakFailureRedirectURL("invalid_callback"), ErrInvalidKeycloakCallback
+	}
+
+	storedState, err := s.consumeKeycloakState(ctx, state)
+	if err != nil {
+		end(err)
+		return nil, s.keycloakFailureRedirectURL("invalid_state"), err
+	}
+
+	token, err := s.keycloak.ExchangeCode(ctx, keycloak.CodeInput{
+		Code:        code,
+		RedirectURL: storedState.RedirectURL,
+	})
+	if err != nil {
+		if storedState.CallbackURL != "" {
+			values := url.Values{}
+			values.Set("provider", "keycloak")
+			values.Set("error", "token_exchange_failed")
+			redirectURL := appendQuery(storedState.CallbackURL, values)
+			end(err, "callback_url", storedState.CallbackURL, "redirect_url", redirectURL)
+			return nil, redirectURL, err
+		}
+		end(err)
+		return nil, s.keycloakFailureRedirectURL("token_exchange_failed"), err
+	}
+
+	if _, _, err := s.findOrCreateKeycloakUser(ctx, token); err != nil {
+		if storedState.CallbackURL != "" {
+			values := url.Values{}
+			values.Set("provider", "keycloak")
+			values.Set("error", "user_provision_failed")
+			redirectURL := appendQuery(storedState.CallbackURL, values)
+			end(err, "callback_url", storedState.CallbackURL, "redirect_url", redirectURL)
+			return nil, redirectURL, err
+		}
+		end(err)
+		return nil, s.keycloakFailureRedirectURL("user_provision_failed"), err
+	}
+
+	session := sessionResponseFromToken(token)
+	redirectURL := ""
+	if storedState.CallbackURL != "" {
+		exchangeCode, err := s.storeKeycloakExchangeCode(ctx, session)
+		if err != nil {
+			if storedState.CallbackURL != "" {
+				values := url.Values{}
+				values.Set("provider", "keycloak")
+				values.Set("error", "exchange_code_failed")
+				redirectURL := appendQuery(storedState.CallbackURL, values)
+				end(err, "callback_url", storedState.CallbackURL, "redirect_url", redirectURL)
+				return nil, redirectURL, err
+			}
+			end(err)
+			return nil, s.keycloakFailureRedirectURL("exchange_code_failed"), err
+		}
+		values := url.Values{}
+		values.Set("provider", "keycloak")
+		values.Set("code", exchangeCode)
+		redirectURL = appendQuery(storedState.CallbackURL, values)
+	} else {
+		redirectURL = s.keycloakSuccessRedirectURL()
+	}
+
+	end(nil, "callback_url", storedState.CallbackURL, "redirect_url", redirectURL)
+	return session, redirectURL, nil
+}
+
+func (s *AuthServiceImpl) HandleKeycloakErrorCallback(ctx context.Context, state string, reason string) (string, error) {
+	state = strings.TrimSpace(state)
+	reason = strings.TrimSpace(reason)
+	if reason == "" {
+		reason = "keycloak_error"
+	}
+	if state == "" {
+		return s.keycloakFailureRedirectURL(reason), nil
+	}
+
+	storedState, err := s.consumeKeycloakState(ctx, state)
+	if err != nil {
+		return s.keycloakFailureRedirectURL(reason), err
+	}
+	if storedState.CallbackURL == "" {
+		return s.keycloakFailureRedirectURL(reason), nil
+	}
+
+	values := url.Values{}
+	values.Set("provider", "keycloak")
+	values.Set("error", reason)
+	return appendQuery(storedState.CallbackURL, values), nil
+}
+
+func (s *AuthServiceImpl) ExchangeKeycloakCallbackCode(ctx context.Context, code string) (*dto.SessionResponse, error) {
+	end := s.log.Start(ctx, "ExchangeKeycloakCallbackCode")
+	session, err := s.consumeKeycloakExchangeCode(ctx, code)
+	end(err)
+	return session, err
 }
 
 func (s *AuthServiceImpl) GoogleRedirectURL(ctx context.Context, organizationID int64) (string, error) {
@@ -369,6 +537,68 @@ func (s *AuthServiceImpl) consumeGoogleState(ctx context.Context, state string) 
 	return payload, nil
 }
 
+func (s *AuthServiceImpl) consumeKeycloakState(ctx context.Context, state string) (keycloakState, error) {
+	key := keycloakStateKey(state)
+	raw, err := s.redis.Client.Get(ctx, key).Bytes()
+	if errors.Is(err, goredis.Nil) {
+		return keycloakState{}, ErrInvalidOAuthState
+	}
+	if err != nil {
+		return keycloakState{}, err
+	}
+	if err := s.redis.Client.Del(ctx, key).Err(); err != nil {
+		return keycloakState{}, err
+	}
+
+	var payload keycloakState
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return keycloakState{}, err
+	}
+	if strings.TrimSpace(payload.RedirectURL) == "" {
+		return keycloakState{}, ErrInvalidOAuthState
+	}
+	return payload, nil
+}
+
+func (s *AuthServiceImpl) storeKeycloakExchangeCode(ctx context.Context, session *dto.SessionResponse) (string, error) {
+	code := newStateToken()
+	raw, err := json.Marshal(session)
+	if err != nil {
+		return "", err
+	}
+	if err := s.redis.Client.Set(ctx, keycloakExchangeKey(code), raw, 2*time.Minute).Err(); err != nil {
+		return "", err
+	}
+	return code, nil
+}
+
+func (s *AuthServiceImpl) consumeKeycloakExchangeCode(ctx context.Context, code string) (*dto.SessionResponse, error) {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		return nil, ErrInvalidKeycloakCallback
+	}
+	key := keycloakExchangeKey(code)
+	raw, err := s.redis.Client.Get(ctx, key).Bytes()
+	if errors.Is(err, goredis.Nil) {
+		return nil, ErrInvalidKeycloakCallback
+	}
+	if err != nil {
+		return nil, err
+	}
+	if err := s.redis.Client.Del(ctx, key).Err(); err != nil {
+		return nil, err
+	}
+
+	var session dto.SessionResponse
+	if err := json.Unmarshal(raw, &session); err != nil {
+		return nil, err
+	}
+	if session.AccessToken == "" {
+		return nil, ErrInvalidKeycloakCallback
+	}
+	return &session, nil
+}
+
 func (s *AuthServiceImpl) exchangeCode(ctx context.Context, code string) (googleTokenResponse, error) {
 	values := url.Values{}
 	values.Set("code", code)
@@ -437,6 +667,9 @@ func (s *AuthServiceImpl) findOrCreateGoogleUser(ctx context.Context, organizati
 		if err := s.ensureGoogleUserInFreeIPA(ctx, user, false); err != nil {
 			return nil, false, err
 		}
+		if err := s.assignDefaultGoogleRole(ctx, user); err != nil {
+			return nil, false, err
+		}
 		return user, false, nil
 	}
 	if !errors.Is(err, userRepositories.ErrNotFound) {
@@ -462,6 +695,9 @@ func (s *AuthServiceImpl) findOrCreateGoogleUser(ctx context.Context, organizati
 			existingUser, _ = s.userRepository.FindByID(ctx, existingUser.ID)
 		}
 		if err := s.ensureGoogleUserInFreeIPA(ctx, existingUser, false); err != nil {
+			return nil, false, err
+		}
+		if err := s.assignDefaultGoogleRole(ctx, existingUser); err != nil {
 			return nil, false, err
 		}
 		return existingUser, false, nil
@@ -502,7 +738,130 @@ func (s *AuthServiceImpl) findOrCreateGoogleUser(ctx context.Context, organizati
 		_ = s.userRepository.Delete(ctx, user.ID)
 		return nil, false, err
 	}
+	if err := s.assignDefaultGoogleRole(ctx, user); err != nil {
+		_ = s.userRepository.Delete(ctx, user.ID)
+		return nil, false, err
+	}
 	return user, true, nil
+}
+
+func (s *AuthServiceImpl) findOrCreateKeycloakUser(ctx context.Context, token *keycloak.TokenSet) (*entities.User, bool, error) {
+	claims, err := keycloakClaimsFromToken(token)
+	if err != nil {
+		return nil, false, err
+	}
+
+	user, err := s.userRepository.FindByIdentity(ctx, keycloakProvider, claims.Subject)
+	if err == nil {
+		if claims.EmailVerified && user.EmailVerifiedAt == nil {
+			_ = s.userRepository.MarkEmailVerified(ctx, user.ID)
+			user, _ = s.userRepository.FindByID(ctx, user.ID)
+		}
+		if err := s.assignDefaultRole(ctx, user, s.cfg.Keycloak.DefaultRoleCode); err != nil {
+			return nil, false, err
+		}
+		return user, false, nil
+	}
+	if !errors.Is(err, userRepositories.ErrNotFound) {
+		return nil, false, err
+	}
+
+	username := usernameFromKeycloakClaims(claims)
+	email := strings.ToLower(strings.TrimSpace(claims.Email))
+	existingUser, err := s.userRepository.FindByEmail(ctx, email)
+	if err == nil {
+		if err := s.userRepository.LinkIdentity(ctx, entities.UserIdentity{
+			UserId:         existingUser.ID,
+			Provider:       keycloakProvider,
+			ProviderUserId: claims.Subject,
+			Username:       &username,
+			Email:          &email,
+			IsPrimary:      false,
+		}); err != nil {
+			return nil, false, err
+		}
+		if claims.EmailVerified && existingUser.EmailVerifiedAt == nil {
+			_ = s.userRepository.MarkEmailVerified(ctx, existingUser.ID)
+			existingUser, _ = s.userRepository.FindByID(ctx, existingUser.ID)
+		}
+		if err := s.assignDefaultRole(ctx, existingUser, s.cfg.Keycloak.DefaultRoleCode); err != nil {
+			return nil, false, err
+		}
+		return existingUser, false, nil
+	}
+	if !errors.Is(err, userRepositories.ErrNotFound) {
+		return nil, false, err
+	}
+
+	organizationID := s.cfg.Keycloak.DefaultOrganizationID
+	if organizationID == 0 {
+		return nil, false, errors.New("keycloak default organization id is not configured")
+	}
+
+	displayName := displayNameFromKeycloakClaims(claims)
+	if displayName == "" {
+		displayName = email
+	}
+
+	user, err = s.userRepository.Create(ctx, userRepositories.CreateUserInput{
+		User: entities.User{
+			OrganizationId: organizationID,
+			Username:       username,
+			Email:          email,
+			DisplayName:    displayName,
+			Type:           "external",
+			Status:         "active",
+		},
+		Identity: &entities.UserIdentity{
+			Provider:       keycloakProvider,
+			ProviderUserId: claims.Subject,
+			Username:       &username,
+			Email:          &email,
+			IsPrimary:      true,
+		},
+	})
+	if err != nil {
+		return nil, false, err
+	}
+	if claims.EmailVerified {
+		_ = s.userRepository.MarkEmailVerified(ctx, user.ID)
+		user, _ = s.userRepository.FindByID(ctx, user.ID)
+	}
+	if err := s.assignDefaultRole(ctx, user, s.cfg.Keycloak.DefaultRoleCode); err != nil {
+		_ = s.userRepository.Delete(ctx, user.ID)
+		return nil, false, err
+	}
+
+	return user, true, nil
+}
+
+func (s *AuthServiceImpl) assignDefaultGoogleRole(ctx context.Context, user *entities.User) error {
+	return s.assignDefaultRole(ctx, user, s.cfg.OAuth.Google.DefaultRoleCode)
+}
+
+func (s *AuthServiceImpl) assignDefaultRole(ctx context.Context, user *entities.User, defaultRoleCode string) error {
+	roleCode := strings.TrimSpace(defaultRoleCode)
+	if roleCode == "" {
+		roleCode = "general-guest"
+	}
+
+	role, err := s.roleRepository.FindByCode(ctx, roleCode)
+	if err != nil {
+		return err
+	}
+	if _, err := s.userRoleRepository.FindByUserAndRole(ctx, user.ID, role.ID); err == nil {
+		return nil
+	} else if !errors.Is(err, userRoleRepositories.ErrNotFound) {
+		return err
+	}
+
+	organizationID := user.OrganizationId
+	_, err = s.userRoleRepository.Create(ctx, entities.UserRole{
+		UserId:         user.ID,
+		RoleId:         role.ID,
+		OrganizationId: &organizationID,
+	})
+	return err
 }
 
 func (s *AuthServiceImpl) ensureGoogleUserInFreeIPA(ctx context.Context, user *entities.User, rollbackFreeIPAOnLinkFailure bool) error {
@@ -554,6 +913,62 @@ func usernameFromGoogleUser(user dto.GoogleUserInfo) string {
 	return local + "_" + sub
 }
 
+func keycloakClaimsFromToken(token *keycloak.TokenSet) (keycloakClaims, error) {
+	if token == nil {
+		return keycloakClaims{}, ErrInvalidKeycloakCallback
+	}
+
+	rawToken := strings.TrimSpace(token.IDToken)
+	if rawToken == "" {
+		rawToken = strings.TrimSpace(token.AccessToken)
+	}
+	if rawToken == "" {
+		return keycloakClaims{}, ErrInvalidKeycloakCallback
+	}
+
+	claims := keycloakClaims{}
+	if _, _, err := new(jwt.Parser).ParseUnverified(rawToken, &claims); err != nil {
+		return keycloakClaims{}, err
+	}
+
+	claims.Subject = strings.TrimSpace(claims.Subject)
+	claims.PreferredUsername = strings.TrimSpace(claims.PreferredUsername)
+	claims.Email = strings.ToLower(strings.TrimSpace(claims.Email))
+	claims.Name = strings.TrimSpace(claims.Name)
+	claims.GivenName = strings.TrimSpace(claims.GivenName)
+	claims.FamilyName = strings.TrimSpace(claims.FamilyName)
+	if claims.Subject == "" || claims.Email == "" {
+		return keycloakClaims{}, ErrInvalidKeycloakCallback
+	}
+
+	return claims, nil
+}
+
+func usernameFromKeycloakClaims(claims keycloakClaims) string {
+	username := strings.TrimSpace(claims.PreferredUsername)
+	if username == "" {
+		username = strings.Split(claims.Email, "@")[0]
+	}
+	if username == "" {
+		username = "keycloak_user"
+	}
+	return username
+}
+
+func displayNameFromKeycloakClaims(claims keycloakClaims) string {
+	displayName := strings.TrimSpace(claims.Name)
+	if displayName != "" {
+		return displayName
+	}
+
+	displayName = strings.TrimSpace(strings.TrimSpace(claims.GivenName) + " " + strings.TrimSpace(claims.FamilyName))
+	if displayName != "" {
+		return displayName
+	}
+
+	return usernameFromKeycloakClaims(claims)
+}
+
 func (s *AuthServiceImpl) successRedirectURL(userID int64) string {
 	if s.cfg.OAuth.Google.SuccessRedirectURL == "" {
 		return ""
@@ -574,8 +989,71 @@ func (s *AuthServiceImpl) failureRedirectURL(reason string) string {
 	return s.cfg.OAuth.Google.FailureRedirectURL + "?" + values.Encode()
 }
 
+func (s *AuthServiceImpl) keycloakRedirectURL() string {
+	if strings.TrimSpace(s.cfg.Keycloak.RedirectURL) != "" {
+		return strings.TrimSpace(s.cfg.Keycloak.RedirectURL)
+	}
+	return strings.TrimRight(s.cfg.App.PublicURL, "/") + "/api/v1/auth/keycloak/callback"
+}
+
+func (s *AuthServiceImpl) keycloakSuccessRedirectURL() string {
+	if s.cfg.Keycloak.SuccessRedirectURL == "" {
+		return ""
+	}
+	values := url.Values{}
+	values.Set("provider", "keycloak")
+	return appendQuery(s.cfg.Keycloak.SuccessRedirectURL, values)
+}
+
+func (s *AuthServiceImpl) keycloakFailureRedirectURL(reason string) string {
+	if s.cfg.Keycloak.FailureRedirectURL == "" {
+		return ""
+	}
+	values := url.Values{}
+	values.Set("provider", "keycloak")
+	values.Set("reason", reason)
+	return appendQuery(s.cfg.Keycloak.FailureRedirectURL, values)
+}
+
 func googleStateKey(state string) string {
 	return "oauth:google:state:" + state
+}
+
+func keycloakStateKey(state string) string {
+	return "oauth:keycloak:state:" + state
+}
+
+func keycloakExchangeKey(code string) string {
+	return "oauth:keycloak:exchange:" + code
+}
+
+func validateCallbackURL(callbackURL string) error {
+	parsed, err := url.Parse(callbackURL)
+	if err != nil {
+		return err
+	}
+	if parsed.Scheme != "http" && parsed.Scheme != "https" {
+		return ErrInvalidKeycloakCallback
+	}
+	if parsed.Host == "" {
+		return ErrInvalidKeycloakCallback
+	}
+	return nil
+}
+
+func appendQuery(raw string, values url.Values) string {
+	parsed, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	query := parsed.Query()
+	for key, items := range values {
+		for _, item := range items {
+			query.Set(key, item)
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
 }
 
 func newStateToken() string {

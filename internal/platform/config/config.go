@@ -74,18 +74,24 @@ type GoogleOAuthConfig struct {
 	RedirectURL           string
 	Scopes                []string
 	DefaultOrganizationID int64
+	DefaultRoleCode       string
 	SuccessRedirectURL    string
 	FailureRedirectURL    string
 }
 
 type KeycloakConfig struct {
-	Enabled           bool
-	BaseURL           string
-	Realm             string
-	ClientID          string
-	ClientSecret      string
-	LoginClientID     string
-	LoginClientSecret string
+	Enabled               bool
+	BaseURL               string
+	Realm                 string
+	ClientID              string
+	ClientSecret          string
+	LoginClientID         string
+	LoginClientSecret     string
+	RedirectURL           string
+	SuccessRedirectURL    string
+	FailureRedirectURL    string
+	DefaultOrganizationID int64
+	DefaultRoleCode       string
 }
 
 type FreeIPAConfig struct {
@@ -150,18 +156,24 @@ func Load() Config {
 				RedirectURL:           env("GOOGLE_REDIRECT_URL", env("APP_PUBLIC_URL", "http://localhost:8080")+"/api/v1/auth/google/callback"),
 				Scopes:                splitEnv("GOOGLE_SCOPES", []string{"openid", "email", "profile"}),
 				DefaultOrganizationID: int64Env("GOOGLE_DEFAULT_ORGANIZATION_ID", 0),
+				DefaultRoleCode:       env("GOOGLE_DEFAULT_ROLE_CODE", "general-guest"),
 				SuccessRedirectURL:    env("GOOGLE_SUCCESS_REDIRECT_URL", ""),
 				FailureRedirectURL:    env("GOOGLE_FAILURE_REDIRECT_URL", ""),
 			},
 		},
 		Keycloak: KeycloakConfig{
-			Enabled:           boolEnv("KEYCLOAK_ENABLED", false),
-			BaseURL:           strings.TrimRight(env("KEYCLOAK_BASE_URL", ""), "/"),
-			Realm:             env("KEYCLOAK_REALM", ""),
-			ClientID:          env("KEYCLOAK_ADMIN_CLIENT_ID", ""),
-			ClientSecret:      env("KEYCLOAK_ADMIN_CLIENT_SECRET", ""),
-			LoginClientID:     env("KEYCLOAK_LOGIN_CLIENT_ID", env("KEYCLOAK_ADMIN_CLIENT_ID", "")),
-			LoginClientSecret: env("KEYCLOAK_LOGIN_CLIENT_SECRET", ""),
+			Enabled:               boolEnv("KEYCLOAK_ENABLED", false),
+			BaseURL:               strings.TrimRight(env("KEYCLOAK_BASE_URL", ""), "/"),
+			Realm:                 env("KEYCLOAK_REALM", ""),
+			ClientID:              env("KEYCLOAK_ADMIN_CLIENT_ID", ""),
+			ClientSecret:          env("KEYCLOAK_ADMIN_CLIENT_SECRET", ""),
+			LoginClientID:         env("KEYCLOAK_LOGIN_CLIENT_ID", env("KEYCLOAK_ADMIN_CLIENT_ID", "")),
+			LoginClientSecret:     env("KEYCLOAK_LOGIN_CLIENT_SECRET", ""),
+			RedirectURL:           env("KEYCLOAK_REDIRECT_URL", env("APP_PUBLIC_URL", "http://localhost:8080")+"/api/v1/auth/keycloak/callback"),
+			SuccessRedirectURL:    env("KEYCLOAK_SUCCESS_REDIRECT_URL", ""),
+			FailureRedirectURL:    env("KEYCLOAK_FAILURE_REDIRECT_URL", ""),
+			DefaultOrganizationID: int64Env("KEYCLOAK_DEFAULT_ORGANIZATION_ID", int64Env("GOOGLE_DEFAULT_ORGANIZATION_ID", 0)),
+			DefaultRoleCode:       env("KEYCLOAK_DEFAULT_ROLE_CODE", "general-guest"),
 		},
 		FreeIPA: FreeIPAConfig{
 			Enabled:            boolEnv("FREEIPA_ENABLED", false),
