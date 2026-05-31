@@ -302,50 +302,70 @@ func (s *UserServiceImpl) VerifyEmail(ctx context.Context, request dto.VerifyEma
 
 func (s *UserServiceImpl) SetupPassword(ctx context.Context, request dto.SetupPasswordRequest) error {
 	end := s.log.Start(ctx, "SetupPassword")
+	println("SETUP PASSWORD => start")
 	code := strings.TrimSpace(request.Code)
 	password := strings.TrimSpace(request.Password)
 	if code == "" || password == "" {
+		println("SETUP PASSWORD => invalid request")
 		end(ErrInvalidRequest)
 		return ErrInvalidRequest
 	}
 
-	verificationCode, err := s.UserRepository.FindVerificationCode(ctx, purposePasswordSetup, hashCode(code))
+	codeHash := hashCode(code)
+	println("SETUP PASSWORD => payload code:", code)
+	println("SETUP PASSWORD => computed code_hash:", codeHash)
+
+	verificationCode, err := s.UserRepository.FindVerificationCode(ctx, purposePasswordSetup, codeHash)
 	if err != nil {
+		println("SETUP PASSWORD => FindVerificationCode error:", err.Error())
+		s.log.Error(ctx, "setup_password.verification_code_lookup_failed", err, "purpose", purposePasswordSetup)
 		end(err)
 		return err
 	}
+	println("SETUP PASSWORD => verification_code_id:", verificationCode.ID)
+	println("SETUP PASSWORD => verification_code_user_id:", verificationCode.UserID)
+	println("SETUP PASSWORD => verification_code_purpose:", verificationCode.Purpose)
+	s.log.Debug(ctx, "setup_password.verification_code_found", "verification_code_id", verificationCode.ID, "user_id", verificationCode.UserID, "purpose", verificationCode.Purpose, "expires_at", verificationCode.ExpiresAt)
 
 	user, err := s.UserRepository.FindByID(ctx, verificationCode.UserID)
 	if err != nil {
+		println("SETUP PASSWORD => FindByID error for user_id:", verificationCode.UserID, "error:", err.Error())
 		end(err)
 		return err
 	}
+	println("SETUP PASSWORD => user_found:", user.ID)
 
 	passwordHash, err := hashPassword(password)
 	if err != nil {
+		println("SETUP PASSWORD => hashPassword error:", err.Error())
 		end(err)
 		return err
 	}
 
 	if err := s.syncPasswordSetupProviders(ctx, user, password); err != nil {
+		println("SETUP PASSWORD => syncPasswordSetupProviders error:", err.Error())
 		end(err)
 		return err
 	}
 
 	if err := s.UserRepository.UpdateCredential(ctx, user.ID, passwordHash, false); err != nil {
+		println("SETUP PASSWORD => UpdateCredential error:", err.Error())
 		end(err)
 		return err
 	}
 	if _, err := s.UserRepository.Update(ctx, user.ID, map[string]any{"status": userStatusActive}); err != nil {
+		println("SETUP PASSWORD => Update user status error:", err.Error())
 		end(err)
 		return err
 	}
 
 	if err := s.UserRepository.UseVerificationCode(ctx, verificationCode.ID); err != nil {
+		println("SETUP PASSWORD => UseVerificationCode error:", err.Error())
 		end(err)
 		return err
 	}
 
+	println("SETUP PASSWORD => success user_id:", user.ID)
 	end(nil, "user_id", user.ID)
 	return nil
 }

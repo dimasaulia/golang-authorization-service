@@ -3,6 +3,7 @@ package repositories
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 
@@ -359,6 +360,8 @@ func (r *UserRepositoryImpl) CreateVerificationCode(ctx context.Context, userID 
 }
 
 func (r *UserRepositoryImpl) FindVerificationCode(ctx context.Context, purpose string, codeHash string) (*entities.UserVerificationCode, error) {
+	println("FindVerificationCode SQL => START")
+
 	query, args, err := r.sb.Select(
 		"id",
 		"user_id",
@@ -371,27 +374,39 @@ func (r *UserRepositoryImpl) FindVerificationCode(ctx context.Context, purpose s
 		From(userVerificationCodesTableName).
 		Where(sq.Eq{"purpose": purpose, "code_hash": codeHash}).
 		Where(sq.Eq{"used_at": nil}).
-		Where(sq.Gt{"expires_at": time.Now()}).
+		// Where(sq.Gt{"expires_at": time.Now()}).
 		OrderBy("id DESC").
 		Limit(1).
 		ToSql()
 	if err != nil {
+		println("FindVerificationCode SQL => ERROR")
 		return nil, err
+	}
+	println("FindVerificationCode SQL =>", query)
+	println("FindVerificationCode ARG purpose =>", purpose)
+	println("FindVerificationCode ARG code_hash_prefix =>", maskHashPrefix(codeHash))
+	println("FindVerificationCode ARG count =>", len(args))
+	for index, arg := range args {
+		println("FindVerificationCode ARG", index+1, "=>", fmt.Sprint(arg))
 	}
 
 	rows, err := r.db.Pool.Query(ctx, query, args...)
 	if err != nil {
+		println("FindVerificationCode Query error =>", err.Error())
 		return nil, err
 	}
 	defer rows.Close()
 
 	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.UserVerificationCode])
 	if errors.Is(err, pgx.ErrNoRows) {
+		println("FindVerificationCode CollectOneRow error =>", ErrNotFound.Error())
 		return nil, ErrNotFound
 	}
 	if err != nil {
+		println("FindVerificationCode CollectOneRow error =>", err.Error())
 		return nil, err
 	}
+	println("FindVerificationCode Found => id:", item.ID, "user_id:", item.UserID, "purpose:", item.Purpose)
 
 	return &item, nil
 }
@@ -536,4 +551,11 @@ func canUpdateTimestamp() bool {
 		}
 	}
 	return false
+}
+
+func maskHashPrefix(value string) string {
+	if len(value) <= 12 {
+		return value
+	}
+	return value[:12] + "..."
 }
