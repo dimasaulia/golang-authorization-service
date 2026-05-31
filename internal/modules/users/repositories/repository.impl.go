@@ -399,6 +399,7 @@ func (r *UserRepositoryImpl) FindVerificationCode(ctx context.Context, purpose s
 
 	item, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.UserVerificationCode])
 	if errors.Is(err, pgx.ErrNoRows) {
+		r.debugVerificationCodeMiss(ctx, purpose, codeHash)
 		println("FindVerificationCode CollectOneRow error =>", ErrNotFound.Error())
 		return nil, ErrNotFound
 	}
@@ -409,6 +410,71 @@ func (r *UserRepositoryImpl) FindVerificationCode(ctx context.Context, purpose s
 	println("FindVerificationCode Found => id:", item.ID, "user_id:", item.UserID, "purpose:", item.Purpose)
 
 	return &item, nil
+}
+
+func (r *UserRepositoryImpl) debugVerificationCodeMiss(ctx context.Context, purpose string, codeHash string) {
+	println("FindVerificationCode MISS => requested_purpose:", purpose)
+	println("FindVerificationCode MISS => requested_code_hash:", codeHash)
+	println("FindVerificationCode MISS => now:", time.Now().Format(time.RFC3339Nano))
+
+	query, args, err := r.sb.Select(
+		"id",
+		"user_id",
+		"purpose",
+		"expires_at",
+		"used_at",
+		"created_at",
+	).
+		From(userVerificationCodesTableName).
+		Where(sq.Eq{"code_hash": codeHash}).
+		OrderBy("id DESC").
+		Limit(5).
+		ToSql()
+	if err != nil {
+		println("FindVerificationCode MISS debug query build error =>", err.Error())
+		return
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		println("FindVerificationCode MISS debug query error =>", err.Error())
+		return
+	}
+	defer rows.Close()
+
+	count := 0
+	for rows.Next() {
+		count++
+		var (
+			id        int64
+			userID    int64
+			rowPurpose string
+			expiresAt time.Time
+			usedAt    *time.Time
+			createdAt *time.Time
+		)
+		if err := rows.Scan(&id, &userID, &rowPurpose, &expiresAt, &usedAt, &createdAt); err != nil {
+			println("FindVerificationCode MISS debug scan error =>", err.Error())
+			return
+		}
+
+		usedAtText := "<nil>"
+		if usedAt != nil {
+			usedAtText = usedAt.Format(time.RFC3339Nano)
+		}
+		createdAtText := "<nil>"
+		if createdAt != nil {
+			createdAtText = createdAt.Format(time.RFC3339Nano)
+		}
+		println("FindVerificationCode MISS row => id:", id, "user_id:", userID, "purpose:", rowPurpose, "expires_at:", expiresAt.Format(time.RFC3339Nano), "used_at:", usedAtText, "created_at:", createdAtText)
+	}
+	if err := rows.Err(); err != nil {
+		println("FindVerificationCode MISS debug rows error =>", err.Error())
+		return
+	}
+	if count == 0 {
+		println("FindVerificationCode MISS => no rows found with requested code_hash")
+	}
 }
 
 func (r *UserRepositoryImpl) UseVerificationCode(ctx context.Context, codeID int64) error {

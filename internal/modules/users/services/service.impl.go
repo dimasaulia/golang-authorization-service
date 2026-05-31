@@ -159,13 +159,25 @@ func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequ
 		}
 	}
 
-	if _, err := s.createFreeIPAUser(ctx, item, request.Password); err != nil {
+	freeIPAUID, err := s.createFreeIPAUser(ctx, item, request.Password)
+	if err != nil {
 		s.deleteCreatedUser(ctx, item.ID)
 		end(err)
 		return nil, err
 	}
 
 	provisionedTo := []string{freeIpaProvider}
+	if s.keycloak.Enabled() {
+		if _, err := s.createKeycloakUser(ctx, item, request.Password, false, true); err != nil {
+			if freeIPAUID != "" {
+				_ = s.deleteFreeIPAUser(ctx, freeIPAUID)
+			}
+			s.deleteCreatedUser(ctx, item.ID)
+			end(err)
+			return nil, err
+		}
+		provisionedTo = append(provisionedTo, keycloakProvider)
+	}
 
 	if token != "" {
 		if err := s.sendPasswordSetupEmail(ctx, item.Email, item.DisplayName, token, request.SetupPasswordURL); err != nil {
@@ -631,9 +643,9 @@ func (s *UserServiceImpl) syncPasswordSetupProviders(ctx context.Context, user *
 			}); err != nil {
 				return err
 			}
-			// if err := s.UserRepository.UpdateIdentityProfile(ctx, user.ID, keycloakProvider, identity.ProviderUserId, user.Username, user.Email); err != nil {
-			// 	return err
-			// }
+			if err := s.UserRepository.UpdateIdentityProfile(ctx, user.ID, keycloakProvider, identity.ProviderUserId, user.Username, user.Email); err != nil {
+				return err
+			}
 		} else {
 			if _, err := s.createKeycloakUser(ctx, user, password, false, true); err != nil {
 				return err
