@@ -16,14 +16,16 @@ type CreateUserRequest struct {
 }
 
 type UpdateUserRequest struct {
-	OrganizationId     *int64  `json:"organization_id"`
-	Username           *string `json:"username"`
-	Email              *string `json:"email"`
-	DisplayName        *string `json:"display_name"`
-	Type               *string `json:"type"`
-	Status             *string `json:"status"`
-	Password           *string `json:"password"`
-	MustChangePassword *bool   `json:"must_change_password"`
+	OrganizationId     *int64   `json:"organization_id"`
+	Username           *string  `json:"username"`
+	Email              *string  `json:"email"`
+	DisplayName        *string  `json:"display_name"`
+	Type               *string  `json:"type"`
+	Status             *string  `json:"status"`
+	Password           *string  `json:"password"`
+	MustChangePassword *bool    `json:"must_change_password"`
+	RoleIds            *[]int64 `json:"role_ids"`
+	TeamIds            *[]int64 `json:"team_ids"`
 }
 
 type SignupUserRequest struct {

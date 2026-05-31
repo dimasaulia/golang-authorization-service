@@ -5,7 +5,9 @@ import "time"
 type Role struct {
 	ID             int64      `db:"id" json:"id"`
 	OrganizationId *int64     `db:"organization_id" json:"organization_id,omitempty"`
-	AppId          *int64     `db:"app_id" json:"app_id,omitempty"`
+	AppId          *int64     `db:"app_id" json:"app_id"`
+	AppCode        *string    `db:"app_code" json:"app_code"`
+	AppName        *string    `db:"app_name" json:"app_name"`
 	Code           string     `db:"code" json:"code"`
 	Name           string     `db:"name" json:"name"`
 	Description    *string    `db:"description" json:"description,omitempty"`

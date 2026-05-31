@@ -106,6 +106,62 @@ func (r *UserRoleRepositoryImpl) FindByUserAndRole(ctx context.Context, userID i
 	return &item, nil
 }
 
+func (r *UserRoleRepositoryImpl) FindRoleIDsByUserID(ctx context.Context, userID int64) ([]int64, error) {
+	query, args, err := r.sb.Select("role_id").
+		From(tableName).
+		Where(sq.Eq{"user_id": userID}).
+		OrderBy("role_id ASC").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []int64{}
+	for rows.Next() {
+		var roleID int64
+		if err := rows.Scan(&roleID); err != nil {
+			return nil, err
+		}
+		items = append(items, roleID)
+	}
+	return items, rows.Err()
+}
+
+func (r *UserRoleRepositoryImpl) FindAssignedRolesByUserID(ctx context.Context, userID int64) ([]entities.UserAssignedRole, error) {
+	query, args, err := r.sb.Select(
+		"r.id",
+		"r.code",
+		"r.name",
+		"r.scope",
+		"r.app_id",
+		"a.code AS app_code",
+		"a.name AS app_name",
+	).
+		From(tableName+" ur").
+		Join("roles r ON r.id = ur.role_id").
+		LeftJoin("apps a ON a.id = r.app_id").
+		Where(sq.Eq{"ur.user_id": userID}).
+		OrderBy("r.name ASC", "r.id ASC").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.UserAssignedRole])
+}
+
 func (r *UserRoleRepositoryImpl) Create(ctx context.Context, entity entities.UserRole) (*entities.UserRole, error) {
 	values := map[string]any{
 		"user_id":         entity.UserId,
@@ -136,6 +192,66 @@ func (r *UserRoleRepositoryImpl) Create(ctx context.Context, entity entities.Use
 	}
 
 	return &created, nil
+}
+
+func (r *UserRoleRepositoryImpl) ReplaceRolesForUser(ctx context.Context, userID int64, roleIDs []int64, organizationID *int64, assignedBy *int64) ([]entities.UserRole, error) {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	deleteQuery, deleteArgs, err := r.sb.Delete(tableName).
+		Where(sq.Eq{"user_id": userID}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, deleteQuery, deleteArgs...); err != nil {
+		return nil, err
+	}
+
+	items := make([]entities.UserRole, 0, len(roleIDs))
+	seen := map[int64]struct{}{}
+	for _, roleID := range roleIDs {
+		if roleID == 0 {
+			continue
+		}
+		if _, exists := seen[roleID]; exists {
+			continue
+		}
+		seen[roleID] = struct{}{}
+
+		values := map[string]any{
+			"user_id":         userID,
+			"role_id":         roleID,
+			"organization_id": organizationID,
+			"assigned_by":     assignedBy,
+		}
+		query, args, err := r.sb.Insert(tableName).
+			SetMap(values).
+			Suffix("RETURNING " + columnList()).
+			ToSql()
+		if err != nil {
+			return nil, err
+		}
+
+		rows, err := tx.Query(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		created, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.UserRole])
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, created)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r *UserRoleRepositoryImpl) Update(ctx context.Context, id int64, data map[string]any) (*entities.UserRole, error) {

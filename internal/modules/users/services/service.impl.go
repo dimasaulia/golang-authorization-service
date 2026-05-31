@@ -24,6 +24,7 @@ import (
 	"github.com/open-suite/authorization/internal/platform/keycloak"
 	"github.com/open-suite/authorization/internal/platform/logger"
 	"github.com/open-suite/authorization/internal/platform/mailer"
+	"github.com/open-suite/authorization/internal/platform/redis"
 	"github.com/open-suite/authorization/internal/shared"
 	"github.com/open-suite/authorization/internal/shared/requestctx"
 	"golang.org/x/crypto/bcrypt"
@@ -54,11 +55,12 @@ type UserServiceImpl struct {
 	keycloak          keycloak.Client
 	freeipa           freeipa.Client
 	mailer            mailer.Mailer
+	redis             *redis.Redis
 	translator        *i18n.Translator
 	log               *logger.LayerLogger
 }
 
-func NewUserService(repository repositories.UserRepository, userRoleService userRoleServices.UserRoleService, teamMemberService teamMemberServices.TeamMemberService, cfg config.Config, keycloakClient keycloak.Client, freeIPAClient freeipa.Client, mailer mailer.Mailer, translator *i18n.Translator, appLogger *logger.Logger) UserService {
+func NewUserService(repository repositories.UserRepository, userRoleService userRoleServices.UserRoleService, teamMemberService teamMemberServices.TeamMemberService, cfg config.Config, keycloakClient keycloak.Client, freeIPAClient freeipa.Client, mailer mailer.Mailer, redisClient *redis.Redis, translator *i18n.Translator, appLogger *logger.Logger) UserService {
 	return &UserServiceImpl{
 		UserRepository:    repository,
 		UserRoleService:   userRoleService,
@@ -67,6 +69,7 @@ func NewUserService(repository repositories.UserRepository, userRoleService user
 		keycloak:          keycloakClient,
 		freeipa:           freeIPAClient,
 		mailer:            mailer,
+		redis:             redisClient,
 		translator:        translator,
 		log:               appLogger.Layer("service.users"),
 	}
@@ -79,11 +82,17 @@ func (s *UserServiceImpl) Find(ctx context.Context, params shared.ListParams) ([
 	return items, err
 }
 
-func (s *UserServiceImpl) FindByID(ctx context.Context, id int64) (*entities.User, error) {
+func (s *UserServiceImpl) FindByID(ctx context.Context, id int64) (*dto.UserResponse, error) {
 	end := s.log.Start(ctx, "FindByID", "id", id)
 	item, err := s.UserRepository.FindByID(ctx, id)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	response, err := s.toUserResponseWithAssignments(ctx, item, false, nil)
 	end(err)
-	return item, err
+	return response, err
 }
 
 func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequest) (*dto.UserResponse, error) {
@@ -406,7 +415,7 @@ func (s *UserServiceImpl) ResendInvitation(ctx context.Context, id int64, reques
 	return err
 }
 
-func (s *UserServiceImpl) Update(ctx context.Context, id int64, request dto.UpdateUserRequest) (*entities.User, error) {
+func (s *UserServiceImpl) Update(ctx context.Context, id int64, request dto.UpdateUserRequest) (*dto.UserResponse, error) {
 	end := s.log.Start(ctx, "Update", "id", id)
 
 	user, err := s.UserRepository.FindByID(ctx, id)
@@ -529,8 +538,33 @@ func (s *UserServiceImpl) Update(ctx context.Context, id int64, request dto.Upda
 	}
 
 	item, err := s.UserRepository.Update(ctx, id, data)
+	if err != nil {
+		end(err)
+		return nil, err
+	}
+
+	if request.RoleIds != nil {
+		organizationID := item.OrganizationId
+		if _, err := s.UserRoleService.ReplaceRolesForUser(ctx, item.ID, *request.RoleIds, &organizationID, nil); err != nil {
+			end(err)
+			return nil, err
+		}
+	}
+	if request.TeamIds != nil {
+		if _, err := s.TeamMemberService.ReplaceTeamsForUser(ctx, item.ID, *request.TeamIds); err != nil {
+			end(err)
+			return nil, err
+		}
+	}
+
+	if err := s.resetUserAccessCache(ctx, id); err != nil {
+		end(err)
+		return nil, err
+	}
+
+	response, err := s.toUserResponseWithAssignments(ctx, item, valueOrDefault(request.MustChangePassword, false), nil)
 	end(err)
-	return item, err
+	return response, err
 }
 
 func (s *UserServiceImpl) syncPasswordSetupProviders(ctx context.Context, user *entities.User, password string) error {
@@ -999,6 +1033,57 @@ func (s *UserServiceImpl) deleteFreeIPAUser(ctx context.Context, uid string) err
 		return err
 	}
 	return nil
+}
+
+func (s *UserServiceImpl) toUserResponseWithAssignments(ctx context.Context, user *entities.User, mustChangePassword bool, provisionedTo []string) (*dto.UserResponse, error) {
+	roles, err := s.UserRoleService.FindAssignedRolesByUserID(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	teams, err := s.TeamMemberService.FindAssignedTeamsByUserID(ctx, user.ID)
+	if err != nil {
+		return nil, err
+	}
+	roleIDs := make([]int64, 0, len(roles))
+	for _, role := range roles {
+		roleIDs = append(roleIDs, role.ID)
+	}
+	teamIDs := make([]int64, 0, len(teams))
+	for _, team := range teams {
+		teamIDs = append(teamIDs, team.ID)
+	}
+
+	response := toUserResponse(user, mustChangePassword, provisionedTo, roleIDs, teamIDs)
+	response.Roles = roles
+	response.Teams = teams
+	return response, nil
+}
+
+func (s *UserServiceImpl) resetUserAccessCache(ctx context.Context, userID int64) error {
+	if s.redis == nil || s.redis.Client == nil {
+		return nil
+	}
+
+	keys := []string{
+		fmt.Sprintf("authz:apps:user:%d", userID),
+		fmt.Sprintf("authz:me:user:%d", userID),
+	}
+
+	pattern := fmt.Sprintf("authz:access:user:%d:app:*", userID)
+	var cursor uint64
+	for {
+		items, nextCursor, err := s.redis.Client.Scan(ctx, cursor, pattern, 100).Result()
+		if err != nil {
+			return err
+		}
+		keys = append(keys, items...)
+		cursor = nextCursor
+		if cursor == 0 {
+			break
+		}
+	}
+
+	return s.redis.Client.Del(ctx, keys...).Err()
 }
 
 func toUserResponse(user *entities.User, mustChangePassword bool, provisionedTo []string, roleIDs []int64, teamIDs []int64) *dto.UserResponse {

@@ -29,8 +29,6 @@ func (m *UserModuleImpl) Name() string {
 
 func (m *UserModuleImpl) RegisterRoutes(mux *http.ServeMux) {
 	mux.Handle("GET /api/v1/users", m.protect(sharedpermissions.AuthorizationCenterUsersRead, m.UserController.Find))
-	mux.HandleFunc("POST /api/v1/users/signup", m.UserController.Signup)
-	mux.HandleFunc("POST /api/v1/users/signup/google", m.UserController.SignupWithGoogle)
 	mux.HandleFunc("GET /api/v1/users/verify-email", m.UserController.VerifyEmail)
 	mux.HandleFunc("POST /api/v1/users/verify-email", m.UserController.VerifyEmail)
 	mux.HandleFunc("POST /api/v1/users/password-setup", m.UserController.SetupPassword)

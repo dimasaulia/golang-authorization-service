@@ -196,7 +196,7 @@ func Initialize(ctx context.Context) (*App, error) {
 	teamMemberService := services15.NewTeamMemberService(teamMemberRepository, logger)
 	teamMemberController := controllers15.NewTeamMemberController(teamMemberService, sender, logger)
 	teamMemberModuleImpl := teammembers.NewTeamMemberModule(teamMemberController)
-	userService := services3.NewUserService(userRepository, userRoleService, teamMemberService, configConfig, keycloakClient, freeIPAClient, mailerMailer, translator, logger)
+	userService := services3.NewUserService(userRepository, userRoleService, teamMemberService, configConfig, keycloakClient, freeIPAClient, mailerMailer, redisRedis, translator, logger)
 	userController := controllers3.NewUserController(userService, sender, logger)
 	userModuleImpl := users.NewUserModule(userController, configConfig, authenticator)
 	teamRoleRepository := repositories16.NewTeamRoleRepository(databaseDatabase, logger)

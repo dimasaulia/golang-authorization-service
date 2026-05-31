@@ -35,19 +35,22 @@ func NewRoleRepository(db *database.Database, appLogger *logger.Logger) RoleRepo
 }
 
 func (r *RoleRepositoryImpl) Find(ctx context.Context, params shared.ListParams) ([]entities.Role, error) {
-	builder := r.sb.Select(columns()...).
-		From(tableName).
-		OrderBy("id DESC").
+	builder := r.sb.Select(selectColumns("r", "a")...).
+		From(tableName + " r").
+		LeftJoin("apps a ON a.id = r.app_id").
+		OrderBy("r.id DESC").
 		Limit(params.Limit).
 		Offset(params.Offset)
 
 	if params.Search != "" {
 		pattern := "%" + params.Search + "%"
 		builder = builder.Where(sq.Or{
-			sq.Expr("LOWER(code) LIKE ?", pattern),
-			sq.Expr("LOWER(name) LIKE ?", pattern),
-			sq.Expr("LOWER(description) LIKE ?", pattern),
-			sq.Expr("LOWER(scope) LIKE ?", pattern),
+			sq.Expr("LOWER(r.code) LIKE ?", pattern),
+			sq.Expr("LOWER(r.name) LIKE ?", pattern),
+			sq.Expr("LOWER(r.description) LIKE ?", pattern),
+			sq.Expr("LOWER(r.scope) LIKE ?", pattern),
+			sq.Expr("LOWER(a.code) LIKE ?", pattern),
+			sq.Expr("LOWER(a.name) LIKE ?", pattern),
 		})
 	}
 
@@ -66,9 +69,10 @@ func (r *RoleRepositoryImpl) Find(ctx context.Context, params shared.ListParams)
 }
 
 func (r *RoleRepositoryImpl) FindByID(ctx context.Context, id int64) (*entities.Role, error) {
-	query, args, err := r.sb.Select(columns()...).
-		From(tableName).
-		Where(sq.Eq{"id": id}).
+	query, args, err := r.sb.Select(selectColumns("r", "a")...).
+		From(tableName + " r").
+		LeftJoin("apps a ON a.id = r.app_id").
+		Where(sq.Eq{"r.id": id}).
 		Limit(1).
 		ToSql()
 	if err != nil {
@@ -93,9 +97,10 @@ func (r *RoleRepositoryImpl) FindByID(ctx context.Context, id int64) (*entities.
 }
 
 func (r *RoleRepositoryImpl) FindByCode(ctx context.Context, code string) (*entities.Role, error) {
-	query, args, err := r.sb.Select(columns()...).
-		From(tableName).
-		Where(sq.Expr("LOWER(code) = LOWER(?)", code)).
+	query, args, err := r.sb.Select(selectColumns("r", "a")...).
+		From(tableName + " r").
+		LeftJoin("apps a ON a.id = r.app_id").
+		Where(sq.Expr("LOWER(r.code) = LOWER(?)", code)).
 		Limit(1).
 		ToSql()
 	if err != nil {
@@ -246,15 +251,20 @@ func columns() []string {
 }
 
 func columnList() string {
-	return "id, organization_id, app_id, code, name, description, scope, is_system, status, created_at, updated_at"
+	return "id, organization_id, app_id, code, name, description, scope, is_system, status, created_at, updated_at, (SELECT code FROM apps a WHERE a.id = app_id) AS app_code, (SELECT name FROM apps a WHERE a.id = app_id) AS app_name"
+}
+
+func selectColumns(rolePrefix string, appPrefix string) []string {
+	columns := columns()
+	for index, column := range columns {
+		columns[index] = rolePrefix + "." + column
+	}
+	columns = append(columns, appPrefix+".code AS app_code", appPrefix+".name AS app_name")
+	return columns
 }
 
 func prefixedColumnList(prefix string) string {
-	columns := columns()
-	for index, column := range columns {
-		columns[index] = prefix + "." + column
-	}
-	return strings.Join(columns, ", ")
+	return strings.Join(selectColumns(prefix, "a"), ", ")
 }
 
 func buildFindByAppQuery(appColumn string, appValue any, params shared.ListParams) (string, []any) {
@@ -276,7 +286,7 @@ func buildFindByAppQuery(appColumn string, appValue any, params shared.ListParam
 	offsetPlaceholder := nextArg(params.Offset)
 	roleColumns := prefixedColumnList("r")
 	query := fmt.Sprintf(
-		"(SELECT %s FROM %s r WHERE %s) UNION (SELECT %s FROM %s r JOIN apps a ON a.id = r.app_id WHERE %s) ORDER BY id DESC LIMIT %s OFFSET %s",
+		"(SELECT %s FROM %s r LEFT JOIN apps a ON a.id = r.app_id WHERE %s) UNION (SELECT %s FROM %s r LEFT JOIN apps a ON a.id = r.app_id WHERE %s) ORDER BY id DESC LIMIT %s OFFSET %s",
 		roleColumns,
 		tableName,
 		generalWhere,

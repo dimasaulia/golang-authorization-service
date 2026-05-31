@@ -73,6 +73,27 @@ func (s *UserRoleServiceImpl) AssignRolesToUser(ctx context.Context, userID int6
 	return items, nil
 }
 
+func (s *UserRoleServiceImpl) FindRoleIDsByUserID(ctx context.Context, userID int64) ([]int64, error) {
+	end := s.log.Start(ctx, "FindRoleIDsByUserID", "user_id", userID)
+	items, err := s.UserRoleRepository.FindRoleIDsByUserID(ctx, userID)
+	end(err, "count", len(items))
+	return items, err
+}
+
+func (s *UserRoleServiceImpl) FindAssignedRolesByUserID(ctx context.Context, userID int64) ([]entities.UserAssignedRole, error) {
+	end := s.log.Start(ctx, "FindAssignedRolesByUserID", "user_id", userID)
+	items, err := s.UserRoleRepository.FindAssignedRolesByUserID(ctx, userID)
+	end(err, "count", len(items))
+	return items, err
+}
+
+func (s *UserRoleServiceImpl) ReplaceRolesForUser(ctx context.Context, userID int64, roleIDs []int64, organizationID *int64, assignedBy *int64) ([]entities.UserRole, error) {
+	end := s.log.Start(ctx, "ReplaceRolesForUser", "user_id", userID, "count", len(roleIDs))
+	items, err := s.UserRoleRepository.ReplaceRolesForUser(ctx, userID, roleIDs, organizationID, assignedBy)
+	end(err, "assigned", len(items))
+	return items, err
+}
+
 func (s *UserRoleServiceImpl) Update(ctx context.Context, id int64, request dto.UpdateUserRoleRequest) (*entities.UserRole, error) {
 	end := s.log.Start(ctx, "Update", "id", id)
 

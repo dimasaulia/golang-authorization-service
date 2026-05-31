@@ -68,6 +68,27 @@ func (s *TeamMemberServiceImpl) AssignTeamsToUser(ctx context.Context, userID in
 	return items, nil
 }
 
+func (s *TeamMemberServiceImpl) FindTeamIDsByUserID(ctx context.Context, userID int64) ([]int64, error) {
+	end := s.log.Start(ctx, "FindTeamIDsByUserID", "user_id", userID)
+	items, err := s.TeamMemberRepository.FindTeamIDsByUserID(ctx, userID)
+	end(err, "count", len(items))
+	return items, err
+}
+
+func (s *TeamMemberServiceImpl) FindAssignedTeamsByUserID(ctx context.Context, userID int64) ([]entities.UserAssignedTeam, error) {
+	end := s.log.Start(ctx, "FindAssignedTeamsByUserID", "user_id", userID)
+	items, err := s.TeamMemberRepository.FindAssignedTeamsByUserID(ctx, userID)
+	end(err, "count", len(items))
+	return items, err
+}
+
+func (s *TeamMemberServiceImpl) ReplaceTeamsForUser(ctx context.Context, userID int64, teamIDs []int64) ([]entities.TeamMember, error) {
+	end := s.log.Start(ctx, "ReplaceTeamsForUser", "user_id", userID, "count", len(teamIDs))
+	items, err := s.TeamMemberRepository.ReplaceTeamsForUser(ctx, userID, teamIDs)
+	end(err, "assigned", len(items))
+	return items, err
+}
+
 func (s *TeamMemberServiceImpl) Update(ctx context.Context, id int64, request dto.UpdateTeamMemberRequest) (*entities.TeamMember, error) {
 	end := s.log.Start(ctx, "Update", "id", id)
 

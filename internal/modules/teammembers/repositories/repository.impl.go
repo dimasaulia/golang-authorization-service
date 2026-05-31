@@ -79,6 +79,53 @@ func (r *TeamMemberRepositoryImpl) FindByID(ctx context.Context, id int64) (*ent
 	return &item, nil
 }
 
+func (r *TeamMemberRepositoryImpl) FindTeamIDsByUserID(ctx context.Context, userID int64) ([]int64, error) {
+	query, args, err := r.sb.Select("team_id").
+		From(tableName).
+		Where(sq.Eq{"user_id": userID}).
+		OrderBy("team_id ASC").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	items := []int64{}
+	for rows.Next() {
+		var teamID int64
+		if err := rows.Scan(&teamID); err != nil {
+			return nil, err
+		}
+		items = append(items, teamID)
+	}
+	return items, rows.Err()
+}
+
+func (r *TeamMemberRepositoryImpl) FindAssignedTeamsByUserID(ctx context.Context, userID int64) ([]entities.UserAssignedTeam, error) {
+	query, args, err := r.sb.Select("t.id", "t.code", "t.name").
+		From(tableName+" tm").
+		Join("teams t ON t.id = tm.team_id").
+		Where(sq.Eq{"tm.user_id": userID}).
+		OrderBy("t.name ASC", "t.id ASC").
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+
+	rows, err := r.db.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	return pgx.CollectRows(rows, pgx.RowToStructByName[entities.UserAssignedTeam])
+}
+
 func (r *TeamMemberRepositoryImpl) Create(ctx context.Context, entity entities.TeamMember) (*entities.TeamMember, error) {
 	values := map[string]any{
 		"team_id":      entity.TeamId,
@@ -106,6 +153,63 @@ func (r *TeamMemberRepositoryImpl) Create(ctx context.Context, entity entities.T
 	}
 
 	return &created, nil
+}
+
+func (r *TeamMemberRepositoryImpl) ReplaceTeamsForUser(ctx context.Context, userID int64, teamIDs []int64) ([]entities.TeamMember, error) {
+	tx, err := r.db.Pool.Begin(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer tx.Rollback(ctx)
+
+	deleteQuery, deleteArgs, err := r.sb.Delete(tableName).
+		Where(sq.Eq{"user_id": userID}).
+		ToSql()
+	if err != nil {
+		return nil, err
+	}
+	if _, err := tx.Exec(ctx, deleteQuery, deleteArgs...); err != nil {
+		return nil, err
+	}
+
+	items := make([]entities.TeamMember, 0, len(teamIDs))
+	seen := map[int64]struct{}{}
+	for _, teamID := range teamIDs {
+		if teamID == 0 {
+			continue
+		}
+		if _, exists := seen[teamID]; exists {
+			continue
+		}
+		seen[teamID] = struct{}{}
+
+		query, args, err := r.sb.Insert(tableName).
+			SetMap(map[string]any{
+				"team_id": teamID,
+				"user_id": userID,
+			}).
+			Suffix("RETURNING " + columnList()).
+			ToSql()
+		if err != nil {
+			return nil, err
+		}
+
+		rows, err := tx.Query(ctx, query, args...)
+		if err != nil {
+			return nil, err
+		}
+		created, err := pgx.CollectOneRow(rows, pgx.RowToStructByName[entities.TeamMember])
+		rows.Close()
+		if err != nil {
+			return nil, err
+		}
+		items = append(items, created)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 func (r *TeamMemberRepositoryImpl) Update(ctx context.Context, id int64, data map[string]any) (*entities.TeamMember, error) {
