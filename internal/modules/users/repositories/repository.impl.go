@@ -384,7 +384,7 @@ func (r *UserRepositoryImpl) FindVerificationCode(ctx context.Context, purpose s
 	}
 	println("FindVerificationCode SQL =>", query)
 	println("FindVerificationCode ARG purpose =>", purpose)
-	println("FindVerificationCode ARG code_hash_prefix =>", maskHashPrefix(codeHash))
+	println("FindVerificationCode ARG code_hash_prefix =>", (codeHash))
 	println("FindVerificationCode ARG count =>", len(args))
 	for index, arg := range args {
 		println("FindVerificationCode ARG", index+1, "=>", fmt.Sprint(arg))

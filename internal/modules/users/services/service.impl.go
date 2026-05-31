@@ -128,11 +128,11 @@ func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequ
 	}
 
 	if request.SendInvitation || request.Status == userStatusInvited {
-		token = newToken()
+		token = newPublicVerificationCode()
 		input.User.Status = userStatusInvited
 		input.VerificationCode = &repositories.CreateVerificationCodeInput{
 			Purpose:   purposePasswordSetup,
-			CodeHash:  hashCode(token),
+			CodeHash:  token,
 			ExpiresAt: time.Now().Add(72 * time.Hour),
 		}
 	}
@@ -193,7 +193,7 @@ func (s *UserServiceImpl) Signup(ctx context.Context, request dto.SignupUserRequ
 		return nil, err
 	}
 
-	token := newToken()
+	token := newPublicVerificationCode()
 	item, err := s.UserRepository.Create(ctx, repositories.CreateUserInput{
 		User: entities.User{
 			OrganizationId: request.OrganizationId,
@@ -207,7 +207,7 @@ func (s *UserServiceImpl) Signup(ctx context.Context, request dto.SignupUserRequ
 		MustChangePassword: false,
 		VerificationCode: &repositories.CreateVerificationCodeInput{
 			Purpose:   purposeEmailVerification,
-			CodeHash:  hashCode(token),
+			CodeHash:  token,
 			ExpiresAt: time.Now().Add(24 * time.Hour),
 		},
 	})
@@ -284,7 +284,7 @@ func (s *UserServiceImpl) VerifyEmail(ctx context.Context, request dto.VerifyEma
 		return ErrInvalidRequest
 	}
 
-	item, err := s.UserRepository.FindVerificationCode(ctx, purposeEmailVerification, hashCode(code))
+	item, err := s.findVerificationCode(ctx, purposeEmailVerification, code)
 	if err != nil {
 		end(err)
 		return err
@@ -311,11 +311,11 @@ func (s *UserServiceImpl) SetupPassword(ctx context.Context, request dto.SetupPa
 		return ErrInvalidRequest
 	}
 
-	codeHash := hashCode(code)
 	println("SETUP PASSWORD => payload code:", code)
-	println("SETUP PASSWORD => computed code_hash:", codeHash)
+	println("SETUP PASSWORD => lookup code:", code)
+	println("SETUP PASSWORD => legacy lookup code_hash:", hashCode(code))
 
-	verificationCode, err := s.UserRepository.FindVerificationCode(ctx, purposePasswordSetup, codeHash)
+	verificationCode, err := s.findVerificationCode(ctx, purposePasswordSetup, code)
 	if err != nil {
 		println("SETUP PASSWORD => FindVerificationCode error:", err.Error())
 		s.log.Error(ctx, "setup_password.verification_code_lookup_failed", err, "purpose", purposePasswordSetup)
@@ -388,10 +388,10 @@ func (s *UserServiceImpl) ResendVerificationEmail(ctx context.Context, request d
 		return ErrInvalidRequest
 	}
 
-	token := newToken()
+	token := newPublicVerificationCode()
 	if err := s.UserRepository.CreateVerificationCode(ctx, user.ID, repositories.CreateVerificationCodeInput{
 		Purpose:   purposeEmailVerification,
-		CodeHash:  hashCode(token),
+		CodeHash:  token,
 		ExpiresAt: time.Now().Add(24 * time.Hour),
 	}); err != nil {
 		end(err)
@@ -420,10 +420,10 @@ func (s *UserServiceImpl) ResendInvitation(ctx context.Context, id int64, reques
 		return ErrInvalidRequest
 	}
 
-	token := newToken()
+	token := newPublicVerificationCode()
 	if err := s.UserRepository.CreateVerificationCode(ctx, user.ID, repositories.CreateVerificationCodeInput{
 		Purpose:   purposePasswordSetup,
-		CodeHash:  hashCode(token),
+		CodeHash:  token,
 		ExpiresAt: time.Now().Add(72 * time.Hour),
 	}); err != nil {
 		end(err)
@@ -731,6 +731,10 @@ func newToken() string {
 		return fmt.Sprintf("%d", time.Now().UnixNano())
 	}
 	return hex.EncodeToString(bytes)
+}
+
+func newPublicVerificationCode() string {
+	return hashCode(newToken())
 }
 
 func hashCode(code string) string {
@@ -1053,6 +1057,23 @@ func (s *UserServiceImpl) deleteFreeIPAUser(ctx context.Context, uid string) err
 		return err
 	}
 	return nil
+}
+
+func (s *UserServiceImpl) findVerificationCode(ctx context.Context, purpose string, code string) (*entities.UserVerificationCode, error) {
+	code = strings.TrimSpace(code)
+	item, err := s.UserRepository.FindVerificationCode(ctx, purpose, code)
+	if err == nil {
+		return item, nil
+	}
+	if !errors.Is(err, repositories.ErrNotFound) {
+		return nil, err
+	}
+
+	legacyHash := hashCode(code)
+	if legacyHash == code {
+		return nil, err
+	}
+	return s.UserRepository.FindVerificationCode(ctx, purpose, legacyHash)
 }
 
 func (s *UserServiceImpl) toUserResponseWithAssignments(ctx context.Context, user *entities.User, mustChangePassword bool, provisionedTo []string) (*dto.UserResponse, error) {
