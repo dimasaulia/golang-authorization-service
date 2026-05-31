@@ -368,6 +368,11 @@ func (k *Keycloak) CreateUser(ctx context.Context, input CreateUserInput) (strin
 		return "", err
 	}
 	defer resp.Body.Close()
+	respBody, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	if err != nil {
+		end(err)
+		return "", err
+	}
 
 	if resp.StatusCode == http.StatusConflict {
 		userID, findErr := k.findUserID(ctx, token, body.Username, body.Email)
@@ -379,12 +384,18 @@ func (k *Keycloak) CreateUser(ctx context.Context, input CreateUserInput) (strin
 		return userID, nil
 	}
 	if resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusNoContent {
-		err := responseError("create keycloak user failed", resp)
+		err := fmt.Errorf("create keycloak user failed: status=%d body=%s", resp.StatusCode, string(respBody))
 		end(err)
 		return "", err
 	}
 
 	userID := idFromLocation(resp.Header.Get("Location"))
+	if userID == "" && len(respBody) > 0 {
+		var created userRepresentation
+		if err := json.Unmarshal(respBody, &created); err == nil {
+			userID = strings.TrimSpace(created.ID)
+		}
+	}
 	if userID == "" {
 		userID, err = k.findUserID(ctx, token, body.Username, body.Email)
 		if err != nil {
@@ -595,10 +606,47 @@ func (k *Keycloak) adminToken(ctx context.Context) (string, error) {
 }
 
 func (k *Keycloak) findUserID(ctx context.Context, token string, username string, email string) (string, error) {
-	values := url.Values{}
-	values.Set("username", username)
-	values.Set("exact", "true")
+	username = strings.TrimSpace(username)
+	email = strings.ToLower(strings.TrimSpace(email))
 
+	queries := []url.Values{}
+	if username != "" {
+		values := url.Values{}
+		values.Set("username", username)
+		values.Set("exact", "true")
+		queries = append(queries, values)
+	}
+	if email != "" {
+		values := url.Values{}
+		values.Set("email", email)
+		values.Set("exact", "true")
+		queries = append(queries, values)
+	}
+	if username != "" {
+		values := url.Values{}
+		values.Set("search", username)
+		queries = append(queries, values)
+	}
+	if email != "" {
+		values := url.Values{}
+		values.Set("search", email)
+		queries = append(queries, values)
+	}
+
+	for _, values := range queries {
+		userID, err := k.findUserIDByQuery(ctx, token, values, username, email)
+		if err == nil && userID != "" {
+			return userID, nil
+		}
+		if err != nil && !strings.Contains(err.Error(), "keycloak user id not found") {
+			return "", err
+		}
+	}
+
+	return "", errors.New("keycloak user id not found")
+}
+
+func (k *Keycloak) findUserIDByQuery(ctx context.Context, token string, values url.Values, username string, email string) (string, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, k.adminURL("/users")+"?"+values.Encode(), nil)
 	if err != nil {
 		return "", err
@@ -609,10 +657,16 @@ func (k *Keycloak) findUserID(ctx context.Context, token string, username string
 	if err := k.doJSON(req, &users); err != nil {
 		return "", err
 	}
+	if len(users) == 0 {
+		return "", errors.New("keycloak user id not found")
+	}
 	for _, user := range users {
 		if strings.EqualFold(user.Username, username) || strings.EqualFold(user.Email, email) {
 			return user.ID, nil
 		}
+	}
+	if len(users) == 1 && strings.TrimSpace(users[0].ID) != "" {
+		return users[0].ID, nil
 	}
 	return "", errors.New("keycloak user id not found")
 }

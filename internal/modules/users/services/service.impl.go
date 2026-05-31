@@ -168,10 +168,9 @@ func (s *UserServiceImpl) Create(ctx context.Context, request dto.CreateUserRequ
 
 	provisionedTo := []string{freeIpaProvider}
 	if s.keycloak.Enabled() {
-		if _, err := s.createKeycloakUser(ctx, item, request.Password, false, true); err != nil {
-			if freeIPAUID != "" {
-				_ = s.deleteFreeIPAUser(ctx, freeIPAUID)
-			}
+		_, err = s.createKeycloakUser(ctx, item, request.Password, input.MustChangePassword, item.Status == userStatusActive)
+		if err != nil {
+			s.deleteFreeIPAUser(ctx, freeIPAUID)
 			s.deleteCreatedUser(ctx, item.ID)
 			end(err)
 			return nil, err
